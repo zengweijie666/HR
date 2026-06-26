@@ -56,8 +56,11 @@ export function sendMessageStream(
   handlers: SSEHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
+  // 后端路由为 POST /chat/sessions/{id}/messages（返回 SSE 流）
+  // sseChat 用 fetch 直接请求，需补全 /api/v1 前缀
+  const baseURL = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api/v1'
   return sseChat(
-    `/chat/sessions/${sessionId}/messages/stream`,
+    `${baseURL}/chat/sessions/${sessionId}/messages`,
     { query, context },
     handlers,
     signal,

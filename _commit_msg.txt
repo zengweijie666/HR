@@ -1,18 +1,22 @@
-fix: 前后端对接修复 - MongoDB bool 判断 + 业务码对齐
+fix: ObjectId 序列化 + Chat SSE 路径 + LLM 配置
 
-## 问题
-1. 后端 service 层 `if MongoDB.db` 触发 Motor Database 不支持 bool() 的 NotImplementedError
-2. 前端拦截器期望 code===200，但后端 CODE.SUCCESS=0
+## 修复内容
 
-## 修复
-- 后端 11 个 service 文件：`if MongoDB.db else` → `if MongoDB.db is not None else`
-- 后端 2 个 service 文件：`if RedisClient.pool else` → `if RedisClient.pool is not None else`
-- 前端 request.ts：CODE_SUCCESS 从 200 改为 0
-- 前端 test_request.test.ts：mock 响应 code 同步改为 0
-- 更新 README 为全栈文档
+1. **ObjectId 序列化（500 错误）**
+   - main.py 添加 MongoJSONResponse 全局响应类，自动将 ObjectId 转为字符串
+   - resume_service 的 list/get_detail 添加 {"_id": 0} 投影
+   - 修复简历列表 500 错误
+
+2. **Chat SSE 路径（404 错误）**
+   - 前端 chat.ts 的 sendMessageStream URL 从 /messages/stream 改为 /messages
+   - sseChat fetch 请求补全 /api/v1 前缀
+   - 匹配后端路由 POST /chat/sessions/{id}/messages
+
+3. **LLM 配置**
+   - .env 配置 DeepSeek API（deepseek-chat 模型）
+   - test_config.py 适配新模型名
 
 ## 验证
-- 后端 152 单元测试通过
-- 前端 106 测试通过
-- 登录/获取用户/简历列表/看板统计 API 验证通过
-- admin 用户已初始化（admin/admin123）
+- 后端 152 测试通过
+- 简历列表 API 验证通过
+- 会话创建/列表 API 验证通过

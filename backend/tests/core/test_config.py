@@ -12,6 +12,7 @@ def test_settings_loads_defaults(monkeypatch):
     """测试默认配置加载"""
     monkeypatch.setenv("LLM_API_KEY", "sk-test")
     monkeypatch.setenv("JWT_SECRET", "secret-test")
+    monkeypatch.setenv("LLM_MODEL", "qwen-plus")
     s = Settings()
     assert s.APP_NAME == "TalentSense HR"
     assert s.API_V1_PREFIX == "/api/v1"

@@ -191,7 +191,7 @@ class ResumeService:
         异常:
             NotFoundError: 简历不存在
         """
-        doc = await self.resumes_coll.find_one({"resume_id": resume_id})
+        doc = await self.resumes_coll.find_one({"resume_id": resume_id}, {"_id": 0})
         if not doc:
             raise NotFoundError("简历不存在")
         return doc
@@ -234,7 +234,7 @@ class ResumeService:
             query["parse_info.parse_status"] = status
         total = await self.resumes_coll.count_documents(query)
         skip = (page - 1) * page_size
-        cursor = self.resumes_coll.find(query).skip(skip).limit(page_size).sort("created_at", -1)
+        cursor = self.resumes_coll.find(query, {"_id": 0}).skip(skip).limit(page_size).sort("created_at", -1)
         items = await cursor.to_list(length=page_size)
         return {
             "list": items, "total": total, "page": page, "page_size": page_size,
