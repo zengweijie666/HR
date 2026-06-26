@@ -66,6 +66,7 @@ async def health():
 
 
 # 挂载业务路由（按 Phase 顺序逐步开放）
-# from app.api import auth, resumes, chat, search, candidates, email, jd_match, dashboard
-# app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["认证"])
+from app.api import auth
+app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["认证"])
+# from app.api import resumes, chat, search, candidates, email, jd_match, dashboard
 # ... 各 Phase 完成后取消注释
