@@ -1,0 +1,88 @@
+"""
+文件名: tests/agent/test_nodes.py
+创建时间: 2026-06-26
+作者: TalentSense Team
+功能描述: LangGraph 5 节点单元测试
+"""
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from app.agent.state import make_state
+from app.agent.nodes import (
+    intent_node,
+    retrieve_rank_node,
+    clarify_node,
+    detail_node,
+    respond_node,
+)
+
+
+@pytest.mark.asyncio
+async def test_intent_search():
+    """AC11.1: 意图识别 - 搜索"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="search")
+        state = make_state(query="找一个Java 5年的候选人", session_id="s1")
+        result = await intent_node(state)
+        assert result["intent_type"] == "search"
+
+
+@pytest.mark.asyncio
+async def test_intent_chitchat():
+    """AC11.1: 意图识别 - 闲聊"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="chitchat")
+        state = make_state(query="你好", session_id="s1")
+        result = await intent_node(state)
+        assert result["intent_type"] == "chitchat"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rank_node():
+    """AC12.1: 检索+精排节点"""
+    with patch("app.agent.nodes.search_service") as mock_svc:
+        mock_svc.search = AsyncMock(return_value=[{"candidate_id": "c1", "score": 85.0}])
+        state = make_state(query="Java 5年", session_id="s1")
+        state["intent_type"] = "search"
+        result = await retrieve_rank_node(state)
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["candidate_id"] == "c1"
+
+
+@pytest.mark.asyncio
+async def test_clarify_node():
+    """澄清节点（候选人为空时引导）"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="请问您需要哪种技术栈的候选人？")
+        state = make_state(query="找个候选人", session_id="s1")
+        state["intent_type"] = "search"
+        # candidates 为空（make_state 默认 []），触发澄清
+        result = await clarify_node(state)
+        assert "请问" in result["response"] or result["response"] != ""
+
+
+@pytest.mark.asyncio
+async def test_detail_node():
+    """详情查询节点"""
+    with patch("app.agent.nodes.resume_service") as mock_svc:
+        mock_svc.get_detail = AsyncMock(return_value={"resume_id": "r1", "name": "张三"})
+        state = make_state(query="c1 的详情", session_id="s1")
+        state["intent_type"] = "detail"
+        state["candidates"] = [{"candidate_id": "c1", "resume_id": "r1", "name": "张三"}]
+        result = await detail_node(state)
+        assert "detail" in result or "candidate" in result
+
+
+@pytest.mark.asyncio
+async def test_respond_node_chitchat():
+    """响应节点 - 闲聊（流式）"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+
+        async def fake_stream(*args, **kwargs):
+            for tok in ["你", "好", "！"]:
+                yield tok
+
+        mock_llm.chat_stream = fake_stream
+        state = make_state(query="你好", session_id="s1")
+        state["intent_type"] = "chitchat"
+        result = await respond_node(state)
+        assert result["response"] != ""

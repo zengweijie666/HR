@@ -70,5 +70,9 @@ from app.api import auth
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["认证"])
 from app.api import resumes
 app.include_router(resumes.router, prefix=f"{settings.API_V1_PREFIX}/resumes", tags=["简历"])
-# from app.api import chat, search, candidates, email, jd_match, dashboard
+from app.api import search
+app.include_router(search.router, prefix=f"{settings.API_V1_PREFIX}/search", tags=["检索"])
+from app.api import chat
+app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["对话"])
+# from app.api import candidates, email, jd_match, dashboard
 # ... 各 Phase 完成后取消注释
