@@ -79,7 +79,7 @@ app.include_router(candidates.router, prefix=f"{settings.API_V1_PREFIX}/candidat
 from app.api import email
 app.include_router(email.router, prefix=f"{settings.API_V1_PREFIX}/email", tags=["邮件"])
 from app.api import jd_match
-app.include_router(jd_match.router, prefix=f"{settings.API_V1_PREFIX}/jd-match", tags=["JD 匹配"])
+app.include_router(jd_match.router, prefix=f"{settings.API_V1_PREFIX}/jd", tags=["JD 匹配"])
 from app.api import interview
 app.include_router(interview.router, prefix=f"{settings.API_V1_PREFIX}/interview", tags=["面试"])
 from app.api import dashboard

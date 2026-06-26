@@ -28,7 +28,7 @@ def test_match_jd():
         })
         with _auth_patch():
             client = TestClient(app)
-            r = client.post("/api/v1/jd-match", json={
+            r = client.post("/api/v1/jd", json={
                 "jd_text": "招聘 Java 工程师，3 年经验，30K 以内",
                 "top_k": 10,
             }, headers={"Authorization": "Bearer fake"})
