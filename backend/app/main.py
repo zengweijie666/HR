@@ -76,5 +76,7 @@ from app.api import chat
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["对话"])
 from app.api import candidates
 app.include_router(candidates.router, prefix=f"{settings.API_V1_PREFIX}/candidates", tags=["候选人"])
-# from app.api import email, jd_match, dashboard
+from app.api import email
+app.include_router(email.router, prefix=f"{settings.API_V1_PREFIX}/email", tags=["邮件"])
+# from app.api import jd_match, dashboard
 # ... 各 Phase 完成后取消注释
