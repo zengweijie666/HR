@@ -45,8 +45,8 @@
         <span v-if="resume.gender">{{ resume.gender }}</span>
         <span v-if="resume.age != null" class="resume-card__dot">·</span>
         <span v-if="resume.age != null">{{ resume.age }}岁</span>
-        <span class="resume-card__dot">·</span>
-        <span>{{ resume.work_years }}年经验</span>
+        <span v-if="resume.work_years != null" class="resume-card__dot">·</span>
+        <span v-if="resume.work_years != null">{{ resume.work_years }}年经验</span>
       </p>
     </header>
 
@@ -110,9 +110,10 @@ const parseLabel = computed(
 
 /** 展示前 4 个技能，超出折叠 */
 const MAX_SKILLS = 4
-const displaySkills = computed(() => props.resume.skills.slice(0, MAX_SKILLS))
+const skillsList = computed<string[]>(() => props.resume.skills ?? [])
+const displaySkills = computed(() => skillsList.value.slice(0, MAX_SKILLS))
 const extraSkillCount = computed(
-  () => Math.max(0, props.resume.skills.length - MAX_SKILLS),
+  () => Math.max(0, skillsList.value.length - MAX_SKILLS),
 )
 
 /** 处理卡片点击 */
