@@ -48,12 +48,27 @@ class EmbeddingModel:
             texts: 待编码文本列表
         出参:
             (dense_vectors, sparse_vectors) 二元组
-            dense: numpy 数组，shape=(len(texts), 1024)
-            sparse: List[Dict[token_id, weight]]，兼容 Milvus SPARSE_FLOAT_VECTOR
+            dense: List[List[float]]，shape=(len(texts), 1024)，已转原生 float 适配 Milvus
+            sparse: List[Dict[int, float]]，键值均为原生类型，兼容 Milvus SPARSE_FLOAT_VECTOR
+        注意:
+            BGEM3FlagModel 返回 numpy 原生类型（ndarray / numpy.int64 键 / numpy.float32 值），
+            Milvus protobuf 序列化不支持 numpy 类型，必须显式 .tolist() 和 int()/float() 转换。
         """
-        result = self.model.encode(texts, return_dense=True, return_sparse=True)
+        result = self.model.encode(
+            texts,
+            return_dense=True,
+            return_sparse=True,
+            return_colbert_vecs=False,
+            max_length=512,
+        )
         # BGEM3FlagModel.encode 返回 {"dense_vecs", "lexical_weights", "colbert_vecs"}
-        return result["dense_vecs"], result["lexical_weights"]
+        # numpy 类型必须转原生，否则 Milvus insert 序列化报错
+        dense = result["dense_vecs"].tolist()
+        sparse = [
+            {int(k): float(v) for k, v in weights.items()}
+            for weights in result["lexical_weights"]
+        ]
+        return dense, sparse
 
 
 embedding_model = EmbeddingModel()

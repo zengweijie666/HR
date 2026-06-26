@@ -38,10 +38,30 @@ class MongoJSONResponse(JSONResponse):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """生命周期：启动/关闭事件"""
+    """生命周期：启动/关闭事件
+
+    - 连接 MongoDB / Redis
+    - 预热 Milvus Collection（避免首次解析时才连接/建表失败被吞掉）
+    - 重置上次异常中断遗留的 parsing 状态为 failed（参照 HRCopilot 启动兜底）
+    """
     from app.core.database import MongoDB, RedisClient
     await MongoDB.connect()
     await RedisClient.connect()
+    # 预热 Milvus：启动时即连接 + 确保 Collection 存在，失败仅警告不阻断启动
+    try:
+        from app.core.milvus_client import milvus_client
+        milvus_client.ensure_collection()
+        logger.info("Milvus Collection 已就绪")
+    except Exception as e:
+        logger.warning(f"Milvus 预热失败，简历解析相关接口将不可用: {e}")
+    # 重置遗留的 parsing 状态（进程上次崩溃会导致简历永久卡 parsing）
+    try:
+        await MongoDB.db.resumes.update_many(
+            {"parse_info.parse_status": "parsing"},
+            {"$set": {"parse_info.parse_status": "failed"}},
+        )
+    except Exception as e:
+        logger.warning(f"重置遗留 parsing 状态失败: {e}")
     logger.info("应用启动完成")
     yield
     await MongoDB.disconnect()

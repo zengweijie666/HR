@@ -86,6 +86,7 @@ class ResumeService:
         """解析全链路：提取文本 → LLM 结构化 → 去重 → 脱敏 → 父子块 → 入库
 
         异常会被捕获并标记 parse_status=failed，不会向上抛出。
+        向量索引失败仅 warning，不影响结构化解析结果（参照 HRCopilot 设计）。
         """
         try:
             # 1. 文本提取（两级降级）
@@ -109,10 +110,14 @@ class ResumeService:
                 return
             # 4. 父子块切分
             children, parents = split_parent_child(text)
-            # 5. BGE-M3 编码
-            dense, sparse = self.embedding.encode([c.content for c in children])
-            # 6. 写入 Milvus
-            await self.vector_store.insert(children, dense, sparse, parents, resume_id)
+            # 5. BGE-M3 编码 + 6. 写入 Milvus（索引失败仅 warning，不拖垮 parse_status）
+            indexed = True
+            try:
+                dense, sparse = self.embedding.encode([c.content for c in children])
+                await self.vector_store.insert(children, dense, sparse, parents, resume_id)
+            except Exception as idx_err:
+                indexed = False
+                logger.warning(f"简历 {resume_id} 向量索引失败（不影响结构化解析）: {idx_err}")
             # 7. 更新 MongoDB 元数据
             salary = parse_salary(structured.get("salary", "")) or {"min": 0, "max": 0}
             now = datetime.now(timezone.utc).isoformat()
@@ -134,10 +139,11 @@ class ResumeService:
                     "summary": structured.get("summary", ""),
                     "expected_salary": salary,
                     "parse_info": {"parse_status": "completed", "parse_time": now},
+                    "indexed": indexed,
                     "updated_at": now,
                 }},
             )
-            logger.info(f"简历 {resume_id} 解析完成")
+            logger.info(f"简历 {resume_id} 解析完成 (indexed={indexed})")
         except Exception as e:
             logger.exception(f"简历 {resume_id} 解析失败: {e}")
             await self.resumes_coll.update_one(

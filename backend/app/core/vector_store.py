@@ -44,11 +44,15 @@ class VectorStore:
 
         入参:
             children: Chunk 列表（子块）
-            dense: 稠密向量列表
-            sparse: 稀疏向量列表
+            dense: 稠密向量列表（List[List[float]]，由 embedding 层转好原生类型）
+            sparse: 稀疏向量列表（List[Dict[int,float]]，由 embedding 层转好原生类型）
             parents: Chunk 列表（父块，用于回溯 parent_content）
             resume_id: 简历 ID
         """
+        # parent_content 截断到 schema max_length=4000 内，避免超长报错
+        def _truncate(s: str, n: int = 4000) -> str:
+            return s[:n] if len(s) > n else s
+
         data = [
             [c.chunk_id for c in children],
             [resume_id] * len(children),
@@ -60,7 +64,7 @@ class VectorStore:
             [0] * len(children),  # work_years 占位
             [""] * len(children),
             [c.parent_id for c in children],
-            [next((p.content for p in parents if p.parent_id == c.parent_id), "") for c in children],
+            [_truncate(next((p.content for p in parents if p.parent_id == c.parent_id), "")) for c in children],
         ]
         self.collection.insert(data)
         logger.info(f"插入 {len(children)} 子块, resume_id={resume_id}")
