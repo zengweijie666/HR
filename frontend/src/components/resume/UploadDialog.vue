@@ -117,7 +117,9 @@ async function handleUpload(): Promise<void> {
   uploading.value = true
   try {
     const data = await uploadResume(selectedFile.value, overwrite.value)
-    ElMessage.success('上传成功')
+    // 后端通过 BackgroundTasks 异步解析，立即返回 parse_status="parsing"
+    // 提示用户刷新列表查看最终状态
+    ElMessage.success('上传成功，正在后台解析，请稍后刷新列表查看')
     emit('uploaded', data)
     emit('close')
   } catch (err) {

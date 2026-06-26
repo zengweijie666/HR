@@ -38,14 +38,15 @@ class ResumeService:
         self.vector_store = vector_store
         self.dedup_checker = None  # 默认在 _parse_and_index 内按需创建
 
-    async def upload(self, file_bytes: bytes, file_name: str, content_type: str, overwrite: bool = False) -> dict:
-        """AC2.1: 上传文件 → MinIO → 异步解析
+    async def upload(self, file_bytes: bytes, file_name: str, content_type: str, overwrite: bool = False, background_tasks=None) -> dict:
+        """AC2.1: 上传文件 → MinIO → 后台异步解析
 
         入参:
             file_bytes: 文件字节
             file_name: 文件名
             content_type: MIME 类型
             overwrite: 重复时是否覆盖
+            background_tasks: FastAPI BackgroundTasks 实例，传入则后台解析；否则同步解析（兼容旧测试）
         出参:
             {"resume_id", "candidate_id", "file_name", "parse_status", "is_duplicate", "duplicate_with"}
         """
@@ -60,12 +61,26 @@ class ResumeService:
             "tags": [], "is_favorite": False, "notes": "",
             "created_at": now, "updated_at": now,
         })
-        # 后台触发解析（此处简化为同步调用，生产用 BackgroundTasks）
-        await self._parse_and_index(resume_id, file_bytes, file_id, file_name, overwrite)
+        # 解析较慢（LLM + BGE-M3），通过 BackgroundTasks 后台执行
+        # 避免前端 HTTP 请求超时；前端通过列表刷新查看最终 parse_status
+        if background_tasks is not None:
+            background_tasks.add_task(self._parse_and_index_safe, resume_id, file_bytes, file_id, file_name, overwrite)
+        else:
+            await self._parse_and_index(resume_id, file_bytes, file_id, file_name, overwrite)
         return {
             "resume_id": resume_id, "candidate_id": candidate_id, "file_name": file_name,
             "parse_status": "parsing", "is_duplicate": False, "duplicate_with": None,
         }
+
+    async def _parse_and_index_safe(self, resume_id: str, file_bytes: bytes, file_id: str, file_name: str, overwrite: bool):
+        """BackgroundTasks 包装：同步等待 _parse_and_index 完成并兜底日志
+
+        BackgroundTasks 会以协程方式调度 async 函数，但需保证异常不外泄。
+        """
+        try:
+            await self._parse_and_index(resume_id, file_bytes, file_id, file_name, overwrite)
+        except Exception as e:
+            logger.exception(f"[BackgroundTasks] 简历 {resume_id} 解析异常: {e}")
 
     async def _parse_and_index(self, resume_id: str, file_bytes: bytes, file_id: str, file_name: str, overwrite: bool):
         """解析全链路：提取文本 → LLM 结构化 → 去重 → 脱敏 → 父子块 → 入库
@@ -213,6 +228,7 @@ class ResumeService:
             status: 解析状态过滤
         出参:
             {"list", "total", "page", "page_size", "total_pages"}
+            list 中每项已将 basic_info/parse_info 扁平化到顶层，便于前端卡片直接消费
         """
         query = {}
         if keyword:
@@ -235,11 +251,37 @@ class ResumeService:
         total = await self.resumes_coll.count_documents(query)
         skip = (page - 1) * page_size
         cursor = self.resumes_coll.find(query, {"_id": 0}).skip(skip).limit(page_size).sort("created_at", -1)
-        items = await cursor.to_list(length=page_size)
+        raw_items = await cursor.to_list(length=page_size)
+        # 扁平化：前端 ResumeListItem 期望 name/gender/age/location/parse_status 在顶层
+        items = [self._flatten_for_list(it) for it in raw_items]
         return {
             "list": items, "total": total, "page": page, "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
+
+    @staticmethod
+    def _flatten_for_list(doc: dict) -> dict:
+        """将 MongoDB 文档的 basic_info/parse_info 扁平化到顶层，兼容前端 ResumeListItem 类型
+
+        入参:
+            doc: MongoDB 原始文档
+        出参:
+            扁平化后的字典，顶层包含 name/gender/age/location/parse_status 等字段
+        """
+        if not doc:
+            return doc
+        basic = doc.get("basic_info") or {}
+        parse = doc.get("parse_info") or {}
+        flat = dict(doc)
+        # 顶层补充前端期望的扁平字段（若文档本身已有顶层字段则不覆盖）
+        for k in ("name", "gender", "age", "location"):
+            if k not in flat and k in basic:
+                flat[k] = basic[k]
+        if "name" not in flat:
+            flat["name"] = basic.get("name", "")
+        if "parse_status" not in flat:
+            flat["parse_status"] = parse.get("parse_status", "pending")
+        return flat
 
     async def delete(self, resume_id: str) -> None:
         """AC6.1-6.4: 清理 MinIO/MongoDB/Milvus

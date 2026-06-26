@@ -10,6 +10,20 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import type { UserInfo } from '@/types/auth'
+
+/** 构造一个完整的已登录态（token + user），模拟真实登录后的状态 */
+function loginAsFakeUser(): void {
+  const auth = useAuthStore()
+  auth.setToken('token', 'refresh')
+  const fakeUser: UserInfo = {
+    user_id: 'u_test',
+    username: 'tester',
+    role: 'hr',
+    email: 'tester@example.com',
+  }
+  auth.setUser(fakeUser)
+}
 
 describe('router', () => {
   beforeEach(async () => {
@@ -20,8 +34,7 @@ describe('router', () => {
   })
 
   it('已登录访问 / 重定向到 /workbench', async () => {
-    const auth = useAuthStore()
-    auth.setToken('token', 'refresh')
+    loginAsFakeUser()
     await router.push('/')
     expect(router.currentRoute.value.path).toBe('/workbench')
   })
@@ -32,8 +45,7 @@ describe('router', () => {
   })
 
   it('已登录访问未知路径重定向到 /workbench', async () => {
-    const auth = useAuthStore()
-    auth.setToken('token', 'refresh')
+    loginAsFakeUser()
     await router.push('/some/unknown/path')
     expect(router.currentRoute.value.path).toBe('/workbench')
   })

@@ -6,7 +6,7 @@
 入参: HTTP 请求（文件/查询参数/路径参数）
 出参: 统一响应 success/error
 """
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
 from app.services.resume_service import ResumeService
 from app.services.tag_service import TagService
 from app.api.deps import get_current_user
@@ -16,10 +16,21 @@ router = APIRouter()
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...), overwrite: bool = False, user: dict = Depends(get_current_user)):
-    """AC2.1: 上传简历文件"""
+async def upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    overwrite: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """AC2.1: 上传简历文件
+
+    解析（LLM 结构化 + BGE-M3 编码 + Milvus 写入）较慢，
+    通过 BackgroundTasks 异步执行，接口立即返回 parse_status="parsing"。
+    前端通过列表刷新或详情查看最终状态。
+    """
     content = await file.read()
-    result = await ResumeService().upload(content, file.filename, file.content_type, overwrite)
+    service = ResumeService()
+    result = await service.upload(content, file.filename, file.content_type, overwrite, background_tasks)
     return success(data=result)
 
 

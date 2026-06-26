@@ -5,10 +5,11 @@
  * 功能描述: 路由表与全局守卫
  *   - /login 公开路由
  *   - / 布局容器，含子路由（工作台/简历库/详情/看板/JD/设置）
- *   - beforeEach：未登录跳 /login，公开路由放行
+ *   - beforeEach：未登录跳 /login，token 存在但 user 缺失时调 /auth/me 恢复
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { getMe } from '@/api/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -75,13 +76,23 @@ const router = createRouter({
  * 全局前置守卫
  * - meta.public 为 true 直接放行
  * - 未登录跳转 /login
- * - 否则放行
+ * - 已登录但 user 信息缺失（如刷新页面后内存丢失）时调 /auth/me 恢复，失败则退出登录
  */
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (to.meta.public === true) return true
   const auth = useAuthStore()
   if (!auth.isLoggedIn) {
     return { path: '/login' }
+  }
+  // token 存在但用户信息缺失，主动拉取一次
+  if (!auth.user) {
+    try {
+      const me = await getMe()
+      auth.setUser(me)
+    } catch {
+      auth.logout()
+      return { path: '/login' }
+    }
   }
   return true
 })

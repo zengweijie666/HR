@@ -32,6 +32,9 @@ export function uploadResume(file: File, overwrite = false): Promise<UploadRespo
   form.append('overwrite', String(overwrite))
   return request.post('/resumes/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    // 文件上传本身可能较慢（大文件 + 网络），单独放宽到 2 分钟
+    // 解析由后端 BackgroundTasks 异步执行，不影响本请求返回
+    timeout: 120000,
   }) as unknown as Promise<UploadResponse>
 }
 
@@ -74,7 +77,7 @@ export function getPreviewUrl(id: string): Promise<PreviewUrlResult> {
  * @param tags 标签数组
  */
 export function updateTags(id: string, tags: string[]): Promise<void> {
-  return request.patch(`/resumes/${id}/tags`, { tags }) as unknown as Promise<void>
+  return request.put(`/resumes/${id}/tags`, { tags }) as unknown as Promise<void>
 }
 
 /**
@@ -83,7 +86,7 @@ export function updateTags(id: string, tags: string[]): Promise<void> {
  * @param isFavorite 是否收藏
  */
 export function toggleFavorite(id: string, isFavorite: boolean): Promise<void> {
-  return request.patch(`/resumes/${id}/favorite`, { is_favorite: isFavorite }) as unknown as Promise<void>
+  return request.put(`/resumes/${id}/favorite`, { is_favorite: isFavorite }) as unknown as Promise<void>
 }
 
 /**
@@ -92,5 +95,5 @@ export function toggleFavorite(id: string, isFavorite: boolean): Promise<void> {
  * @param notes 备注内容
  */
 export function updateNotes(id: string, notes: string): Promise<void> {
-  return request.patch(`/resumes/${id}/notes`, { notes }) as unknown as Promise<void>
+  return request.put(`/resumes/${id}/notes`, { notes }) as unknown as Promise<void>
 }

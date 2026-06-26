@@ -27,19 +27,21 @@
         <el-col :span="16">
           <section class="detail-card">
             <span class="eyebrow">PROFILE</span>
-            <h2 class="detail-card__name">{{ detail.basic_info.name || '未命名' }}</h2>
+            <h2 class="detail-card__name">{{ detail.basic_info?.name || '未命名' }}</h2>
             <p class="detail-card__meta">
-              <span v-if="detail.basic_info.gender">{{ detail.basic_info.gender }}</span>
-              <span v-if="detail.basic_info.age != null" class="detail-card__dot">·</span>
-              <span v-if="detail.basic_info.age != null">{{ detail.basic_info.age }}岁</span>
-              <span v-if="detail.basic_info.location" class="detail-card__dot">·</span>
-              <span v-if="detail.basic_info.location">{{ detail.basic_info.location }}</span>
-              <span class="detail-card__dot">·</span>
-              <span>{{ detail.work_years }}年经验</span>
+              <span v-if="detail.basic_info?.gender">{{ detail.basic_info.gender }}</span>
+              <span v-if="detail.basic_info?.age != null" class="detail-card__dot">·</span>
+              <span v-if="detail.basic_info?.age != null">{{ detail.basic_info.age }}岁</span>
+              <span v-if="detail.basic_info?.location" class="detail-card__dot">·</span>
+              <span v-if="detail.basic_info?.location">{{ detail.basic_info.location }}</span>
+              <template v-if="detail.work_years != null">
+                <span class="detail-card__dot">·</span>
+                <span>{{ detail.work_years }}年经验</span>
+              </template>
             </p>
             <div class="detail-card__contact">
-              <span class="detail-card__contact-item mono">{{ detail.basic_info.phone_masked || '-' }}</span>
-              <span v-if="detail.basic_info.email_masked" class="detail-card__contact-item mono">
+              <span class="detail-card__contact-item mono">{{ detail.basic_info?.phone_masked || '-' }}</span>
+              <span v-if="detail.basic_info?.email_masked" class="detail-card__contact-item mono">
                 {{ detail.basic_info.email_masked }}
               </span>
             </div>

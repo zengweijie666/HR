@@ -35,15 +35,17 @@
 
     <!-- 中部 meta -->
     <div class="candidate-card__meta">
-      <span>{{ candidate.work_years }}年经验</span>
-      <span class="candidate-card__dot">·</span>
+      <template v-if="candidate.work_years != null">
+        <span>{{ candidate.work_years }}年经验</span>
+        <span class="candidate-card__dot">·</span>
+      </template>
       <span>{{ candidate.education || '学历未知' }}</span>
       <span class="candidate-card__dot">·</span>
       <span class="candidate-card__salary">{{ formatSalary(candidate.expected_salary) }}</span>
     </div>
 
     <!-- 技能标签 -->
-    <div v-if="candidate.skills && candidate.skills.length" class="candidate-card__skills">
+    <div v-if="skillsList.length" class="candidate-card__skills">
       <el-tag
         v-for="skill in displaySkills"
         :key="skill"
@@ -86,18 +88,19 @@ const emit = defineEmits<{
 }>()
 
 /** 评分等级（颜色/标签） */
-const level = computed(() => scoreLevel(props.candidate.score))
+const level = computed(() => scoreLevel(props.candidate.score ?? 0))
 
 /** 五角星数量（score/20，向上取整，最多 5） */
 const starCount = computed(() => {
-  const raw = Math.ceil(props.candidate.score / 20)
+  const raw = Math.ceil((props.candidate.score ?? 0) / 20)
   return Math.min(5, Math.max(0, raw))
 })
 
 /** 技能展示前 4 个 */
 const MAX = 4
-const displaySkills = computed(() => props.candidate.skills.slice(0, MAX))
-const extraCount = computed(() => Math.max(0, props.candidate.skills.length - MAX))
+const skillsList = computed<string[]>(() => props.candidate.skills ?? [])
+const displaySkills = computed(() => skillsList.value.slice(0, MAX))
+const extraCount = computed(() => Math.max(0, skillsList.value.length - MAX))
 
 /** 选中 */
 function handleSelect(): void {
