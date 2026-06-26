@@ -8,6 +8,7 @@
 """
 from fastapi import APIRouter, Depends, UploadFile, File
 from app.services.resume_service import ResumeService
+from app.services.tag_service import TagService
 from app.api.deps import get_current_user
 from app.core.response import success
 
@@ -59,4 +60,25 @@ async def delete(resume_id: str, user: dict = Depends(get_current_user)):
 async def preview(resume_id: str, user: dict = Depends(get_current_user)):
     """AC5.1-5.2: 生成预签名 URL"""
     result = await ResumeService().get_preview_url(resume_id)
+    return success(data=result)
+
+
+@router.put("/{resume_id}/tags")
+async def update_tags(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """AC7.1/7.4: 全量覆盖标签"""
+    result = await TagService().update_tags(resume_id, body["tags"])
+    return success(data=result)
+
+
+@router.put("/{resume_id}/favorite")
+async def toggle_favorite(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """AC8.1/8.2: 切换收藏状态"""
+    result = await TagService().toggle_favorite(resume_id, body["is_favorite"])
+    return success(data=result)
+
+
+@router.put("/{resume_id}/notes")
+async def update_notes(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """AC9.1: 更新评价备注"""
+    result = await TagService().update_notes(resume_id, body["notes"])
     return success(data=result)

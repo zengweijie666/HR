@@ -63,3 +63,36 @@ def test_delete_resume():
             client = TestClient(app, raise_server_exceptions=False)
             r = client.delete("/api/v1/resumes/r1", headers={"Authorization": "Bearer fake"})
             assert r.json()["code"] == 0
+
+
+def test_update_tags_api():
+    """AC7.1: 更新标签"""
+    with patch("app.api.resumes.TagService") as MockSvc:
+        instance = MockSvc.return_value
+        instance.update_tags = AsyncMock(return_value={"resume_id": "r1", "tags": ["已面试"]})
+        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "hr"})):
+            client = TestClient(app, raise_server_exceptions=False)
+            r = client.put("/api/v1/resumes/r1/tags", json={"tags": ["已面试"]}, headers={"Authorization": "Bearer fake"})
+            assert r.json()["data"]["tags"] == ["已面试"]
+
+
+def test_toggle_favorite_api():
+    """AC8.1: 切换收藏"""
+    with patch("app.api.resumes.TagService") as MockSvc:
+        instance = MockSvc.return_value
+        instance.toggle_favorite = AsyncMock(return_value={"resume_id": "r1", "is_favorite": True})
+        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "hr"})):
+            client = TestClient(app, raise_server_exceptions=False)
+            r = client.put("/api/v1/resumes/r1/favorite", json={"is_favorite": True}, headers={"Authorization": "Bearer fake"})
+            assert r.json()["data"]["is_favorite"] is True
+
+
+def test_update_notes_api():
+    """AC9.1: 更新评价"""
+    with patch("app.api.resumes.TagService") as MockSvc:
+        instance = MockSvc.return_value
+        instance.update_notes = AsyncMock(return_value={"resume_id": "r1", "notes": "x"})
+        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "hr"})):
+            client = TestClient(app, raise_server_exceptions=False)
+            r = client.put("/api/v1/resumes/r1/notes", json={"notes": "x"}, headers={"Authorization": "Bearer fake"})
+            assert r.json()["code"] == 0
