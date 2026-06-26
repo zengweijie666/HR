@@ -1,0 +1,11 @@
+[project]
+name = "talentsense-backend"
+version = "2.5.0"
+description = "TalentSense HR 简历推荐系统后端"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
