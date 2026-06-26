@@ -9,8 +9,8 @@ from app.core.embedding import EmbeddingModel
 
 
 def test_lazy_load():
-    """首次访问 model 时才加载 FlagModel"""
-    with patch("app.core.embedding.FlagModel") as MockFlag:
+    """首次访问 model 时才加载 BGEM3FlagModel"""
+    with patch("app.core.embedding.BGEM3FlagModel") as MockFlag:
         m = EmbeddingModel()
         assert m._model is None
         _ = m.model
@@ -18,10 +18,11 @@ def test_lazy_load():
 
 
 def test_encode_returns_dense_sparse():
-    """encode 应返回 (dense, sparse) 二元组"""
-    with patch("app.core.embedding.FlagModel") as MockFlag:
+    """encode 应返回 (dense, sparse) 二元组，key 对齐 BGEM3FlagModel 真实返回"""
+    with patch("app.core.embedding.BGEM3FlagModel") as MockFlag:
         instance = MagicMock()
-        instance.encode.return_value = {"dense": [[0.1] * 1024], "sparse": [{}]}
+        # BGEM3FlagModel.encode 真实返回 key 为 dense_vecs / lexical_weights
+        instance.encode.return_value = {"dense_vecs": [[0.1] * 1024], "lexical_weights": [{}], "colbert_vecs": None}
         MockFlag.return_value = instance
         m = EmbeddingModel()
         dense, sparse = m.encode(["test"])

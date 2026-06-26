@@ -9,8 +9,8 @@
 from app.core.config import settings
 from app.core.logger import logger
 
-# 顶层占位符，使 patch("app.core.reranker.FlagModel") 可生效
-FlagModel = None
+# 顶层占位符，使 patch("app.core.reranker.FlagReranker") 可生效
+FlagReranker = None
 
 
 class RerankerModel:
@@ -21,13 +21,18 @@ class RerankerModel:
 
     @property
     def model(self):
-        """延迟加载 BGE-Reranker 模型"""
+        """延迟加载 BGE-Reranker 模型
+
+        通过 `global FlagReranker` 引用模块级符号，
+        使测试中 `patch("app.core.reranker.FlagReranker")` 可拦截构造。
+        BGE-Reranker 必须使用 FlagReranker（CrossEncoder），FlagModel 是 embedding 类不适用。
+        """
         if self._model is None:
-            global FlagModel
-            if FlagModel is None:  # pragma: no cover - 实际运行时分支
-                from FlagEmbedding import FlagModel as _FlagModel  # type: ignore
-                FlagModel = _FlagModel
-            self._model = FlagModel(settings.BGE_RERANKER_PATH, use_fp16=True)
+            global FlagReranker
+            if FlagReranker is None:  # pragma: no cover - 实际运行时分支
+                from FlagEmbedding import FlagReranker as _FlagReranker  # type: ignore
+                FlagReranker = _FlagReranker
+            self._model = FlagReranker(settings.BGE_RERANKER_PATH, use_fp16=True)
             logger.info("BGE-Reranker 模型已加载")
         return self._model
 

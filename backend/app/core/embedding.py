@@ -9,8 +9,8 @@
 from app.core.config import settings
 from app.core.logger import logger
 
-# 顶层占位符，使 patch("app.core.embedding.FlagModel") 可生效
-FlagModel = None
+# 顶层占位符，使 patch("app.core.embedding.BGEM3FlagModel") 可生效
+BGEM3FlagModel = None
 
 
 class EmbeddingModel:
@@ -23,15 +23,16 @@ class EmbeddingModel:
     def model(self):
         """延迟加载 BGE-M3 模型
 
-        通过 `global FlagModel` 引用模块级符号，
-        使测试中 `patch("app.core.embedding.FlagModel")` 可拦截构造。
+        通过 `global BGEM3FlagModel` 引用模块级符号，
+        使测试中 `patch("app.core.embedding.BGEM3FlagModel")` 可拦截构造。
+        BGE-M3 必须使用 BGEM3FlagModel（支持 dense+sparse），旧 FlagModel 不支持 sparse。
         """
         if self._model is None:
-            global FlagModel
-            if FlagModel is None:  # pragma: no cover - 实际运行时分支
-                from FlagEmbedding import FlagModel as _FlagModel  # type: ignore
-                FlagModel = _FlagModel
-            self._model = FlagModel(settings.BGE_M3_PATH, use_fp16=True)
+            global BGEM3FlagModel
+            if BGEM3FlagModel is None:  # pragma: no cover - 实际运行时分支
+                from FlagEmbedding import BGEM3FlagModel as _BGEM3FlagModel  # type: ignore
+                BGEM3FlagModel = _BGEM3FlagModel
+            self._model = BGEM3FlagModel(settings.BGE_M3_PATH, use_fp16=True)
             logger.info("BGE-M3 模型已加载")
         return self._model
 
@@ -47,9 +48,12 @@ class EmbeddingModel:
             texts: 待编码文本列表
         出参:
             (dense_vectors, sparse_vectors) 二元组
+            dense: numpy 数组，shape=(len(texts), 1024)
+            sparse: List[Dict[token_id, weight]]，兼容 Milvus SPARSE_FLOAT_VECTOR
         """
         result = self.model.encode(texts, return_dense=True, return_sparse=True)
-        return result["dense"], result["sparse"]
+        # BGEM3FlagModel.encode 返回 {"dense_vecs", "lexical_weights", "colbert_vecs"}
+        return result["dense_vecs"], result["lexical_weights"]
 
 
 embedding_model = EmbeddingModel()
