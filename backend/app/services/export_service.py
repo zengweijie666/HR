@@ -32,7 +32,7 @@ class ExportService:
     """Excel 导出服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
 
     async def export_excel(self, candidate_ids: list[str], columns: list[str]) -> bytes:
         """AC14.1-14.3: 导出 Excel

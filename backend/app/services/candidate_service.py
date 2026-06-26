@@ -16,7 +16,7 @@ class CandidateService:
     """相似候选人推荐 + 对比"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.embedding = embedding_model
         self.vector_store = vector_store
 

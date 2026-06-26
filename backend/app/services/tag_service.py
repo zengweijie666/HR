@@ -14,7 +14,7 @@ class TagService:
     """标签/收藏/评价服务"""
 
     def __init__(self):
-        self.coll = MongoDB.db.resumes if MongoDB.db else None
+        self.coll = MongoDB.db.resumes if MongoDB.db is not None else None
 
     async def update_tags(self, resume_id: str, tags: list[str]) -> dict:
         """AC7.1/7.4: 全量覆盖标签

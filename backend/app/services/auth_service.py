@@ -22,8 +22,8 @@ class AuthService:
 
     def __init__(self):
         from app.core.database import MongoDB, RedisClient
-        self.users_coll = MongoDB.db.users if MongoDB.db else None
-        self.redis = RedisClient.get_client() if RedisClient.pool else None
+        self.users_coll = MongoDB.db.users if MongoDB.db is not None else None
+        self.redis = RedisClient.get_client() if RedisClient.pool is not None else None
 
     @staticmethod
     def hash_password(password: str) -> str:

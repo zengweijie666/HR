@@ -15,7 +15,7 @@ import request from '@/api/request'
 const server = setupServer(
   http.get(/\/api\/v1\/success$/, () => {
     return HttpResponse.json({
-      code: 200,
+      code: 0,
       message: 'ok',
       data: { foo: 'bar' },
       trace_id: 't1',

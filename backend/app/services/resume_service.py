@@ -27,7 +27,7 @@ class ResumeService:
     """简历服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.minio = minio_client
         self.ocr = ocr_engine
         self.llm = llm_client

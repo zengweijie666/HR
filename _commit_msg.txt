@@ -1,0 +1,18 @@
+fix: 前后端对接修复 - MongoDB bool 判断 + 业务码对齐
+
+## 问题
+1. 后端 service 层 `if MongoDB.db` 触发 Motor Database 不支持 bool() 的 NotImplementedError
+2. 前端拦截器期望 code===200，但后端 CODE.SUCCESS=0
+
+## 修复
+- 后端 11 个 service 文件：`if MongoDB.db else` → `if MongoDB.db is not None else`
+- 后端 2 个 service 文件：`if RedisClient.pool else` → `if RedisClient.pool is not None else`
+- 前端 request.ts：CODE_SUCCESS 从 200 改为 0
+- 前端 test_request.test.ts：mock 响应 code 同步改为 0
+- 更新 README 为全栈文档
+
+## 验证
+- 后端 152 单元测试通过
+- 前端 106 测试通过
+- 登录/获取用户/简历列表/看板统计 API 验证通过
+- admin 用户已初始化（admin/admin123）

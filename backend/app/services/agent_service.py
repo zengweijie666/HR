@@ -36,7 +36,7 @@ class AgentService:
     """对话服务：会话 CRUD + SSE 流式编排"""
 
     def __init__(self):
-        self.sessions_coll = MongoDB.db.chat_sessions if MongoDB.db else None
+        self.sessions_coll = MongoDB.db.chat_sessions if MongoDB.db is not None else None
 
     async def create_session(self, user_id: str, title: str = "新会话") -> dict:
         """AC10.1: 创建会话

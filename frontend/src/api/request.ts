@@ -16,8 +16,8 @@ const ACCESS_TOKEN_KEY = 'access_token'
 const REFRESH_TOKEN_KEY = 'refresh_token'
 /** token 失效业务码 */
 const CODE_TOKEN_EXPIRED = 1002
-/** 成功业务码 */
-const CODE_SUCCESS = 200
+/** 成功业务码（后端 CODE.SUCCESS = 0） */
+const CODE_SUCCESS = 0
 
 /** Axios 实例：baseURL 取自环境变量，默认 /api/v1 */
 const request = axios.create({

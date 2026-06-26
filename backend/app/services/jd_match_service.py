@@ -21,7 +21,7 @@ class JdMatchService:
     """JD 匹配服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.embedding = embedding_model
         self.vector_store = vector_store
         self.reranker = reranker_model

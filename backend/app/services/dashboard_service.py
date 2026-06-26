@@ -15,9 +15,9 @@ class DashboardService:
     """数据看板服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
-        self.sessions_coll = MongoDB.db.chat_sessions if MongoDB.db else None
-        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+        self.sessions_coll = MongoDB.db.chat_sessions if MongoDB.db is not None else None
+        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db is not None else None
 
     async def get_stats(self) -> dict:
         """AC22.1-22.3: 看板统计

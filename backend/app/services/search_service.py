@@ -27,8 +27,8 @@ class SearchService:
         self.reranker = reranker_model
         self.vector_store = vector_store
         self.strategy_selector = strategy_selector
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
-        self.redis = RedisClient.get_client() if RedisClient.pool else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+        self.redis = RedisClient.get_client() if RedisClient.pool is not None else None
 
     async def search(
         self,

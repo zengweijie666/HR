@@ -20,8 +20,8 @@ class InterviewService:
     """面试服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
-        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db is not None else None
 
     async def generate_questions(
         self, resume_id: str, job_title: str = "", count: int = 5

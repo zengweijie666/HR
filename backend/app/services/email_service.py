@@ -41,8 +41,8 @@ class EmailService:
     """邮件服务：发送推荐邮件 + SMTP 配置管理"""
 
     def __init__(self):
-        self.config_coll = MongoDB.db.email_config if MongoDB.db else None
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db else None
+        self.config_coll = MongoDB.db.email_config if MongoDB.db is not None else None
+        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
 
     async def send_recommendation(
         self, to_email: str, candidate_ids: list[str], job_title: str = ""
