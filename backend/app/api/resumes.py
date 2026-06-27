@@ -41,22 +41,27 @@ async def list_resumes(
     is_favorite: bool | None = None, education_min: int | None = None,
     work_years_min: int | None = None, salary_min: int | None = None,
     salary_max: int | None = None, status: str | None = None,
+    date_from: str | None = None, date_to: str | None = None,
+    sort_by: str = "created_at", sort_order: str = "desc",
     user: dict = Depends(get_current_user),
 ):
-    """AC3.1-3.8: 简历列表查询"""
+    """AC3.1-3.8: 简历列表查询（根据角色返回原始/脱敏手机邮箱，支持日期范围筛选和排序）"""
     result = await ResumeService().list(
         page=page, page_size=page_size, keyword=keyword, tag=tag,
         is_favorite=is_favorite, education_min=education_min,
         work_years_min=work_years_min, salary_min=salary_min,
         salary_max=salary_max, status=status,
+        date_from=date_from, date_to=date_to,
+        sort_by=sort_by, sort_order=sort_order,
+        current_user=user,
     )
     return success(data=result)
 
 
 @router.get("/{resume_id}")
 async def get_detail(resume_id: str, user: dict = Depends(get_current_user)):
-    """AC4.1-4.4: 获取简历详情"""
-    result = await ResumeService().get_detail(resume_id)
+    """AC4.1-4.4: 获取简历详情（根据角色返回原始/脱敏手机邮箱）"""
+    result = await ResumeService().get_detail(resume_id, current_user=user)
     return success(data=result)
 
 
