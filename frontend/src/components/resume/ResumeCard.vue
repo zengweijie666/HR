@@ -73,14 +73,25 @@
       <span v-if="extraSkillCount > 0" class="resume-card__skill-more">+{{ extraSkillCount }}</span>
     </div>
 
-    <!-- 底部：学历·地点 + 薪资 -->
+    <!-- 底部：学历·地点 + 薪资 + 发送邮件 -->
     <footer class="resume-card__foot">
       <div class="resume-card__foot-left">
         <span class="resume-card__edu">{{ resume.education || '学历未知' }}</span>
         <span v-if="resume.location" class="resume-card__dot">·</span>
         <span v-if="resume.location" class="resume-card__loc">{{ resume.location }}</span>
       </div>
-      <div class="resume-card__salary">{{ formatSalary(resume.expected_salary) }}</div>
+      <div class="resume-card__foot-right">
+        <div class="resume-card__salary">{{ formatSalary(resume.expected_salary) }}</div>
+        <button
+          type="button"
+          class="resume-card__email"
+          aria-label="发送邮件"
+          title="发送邮件"
+          @click.stop="handleSendEmail"
+        >
+          <el-icon><Promotion /></el-icon>
+        </button>
+      </div>
     </footer>
   </article>
 </template>
@@ -91,7 +102,7 @@
  * 展示单条简历摘要信息，可点击与收藏
  */
 import { computed } from 'vue'
-import { Star, StarFilled, Delete } from '@element-plus/icons-vue'
+import { Star, StarFilled, Delete, Promotion } from '@element-plus/icons-vue'
 import { formatSalary } from '@/utils/format'
 import { PARSE_STATUS } from '@/utils/constant'
 import type { ResumeListItem } from '@/types/resume'
@@ -110,6 +121,8 @@ const emit = defineEmits<{
   (e: 'toggle-favorite', resumeId: string): void
   /** 删除简历 */
   (e: 'delete', resumeId: string): void
+  /** 发送邮件 */
+  (e: 'send-email', resumeId: string): void
 }>()
 
 /** 是否解析中（非完成状态） */
@@ -141,6 +154,11 @@ function handleToggleFav(): void {
 /** 处理删除 */
 function handleDelete(): void {
   emit('delete', props.resume.resume_id)
+}
+
+/** 处理发送邮件 */
+function handleSendEmail(): void {
+  emit('send-email', props.resume.resume_id)
 }
 </script>
 
@@ -332,6 +350,12 @@ function handleDelete(): void {
     color: var(--color-ink-soft);
   }
 
+  &__foot-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   &__edu {
     color: var(--color-ink);
   }
@@ -342,6 +366,32 @@ function handleDelete(): void {
     font-weight: 600;
     color: var(--color-accent-deep);
     letter-spacing: 0.01em;
+  }
+
+  &__email {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--color-line);
+    background: var(--color-bg-card);
+    cursor: pointer;
+    color: var(--color-ink-soft);
+    border-radius: 50%;
+    transition: color var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out);
+
+    &:hover {
+      background-color: var(--color-primary-tint);
+      color: var(--color-primary);
+      border-color: var(--color-primary);
+    }
+    .el-icon {
+      font-size: 14px;
+    }
   }
 }
 </style>

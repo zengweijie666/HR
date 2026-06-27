@@ -57,6 +57,7 @@
               @click="handleClickResume"
               @toggle-favorite="handleToggleFavorite"
               @delete="handleDeleteResume"
+              @send-email="handleSendEmail"
             />
           </div>
         </el-col>
@@ -83,6 +84,9 @@
       @uploaded="handleUploaded"
       @close="uploadVisible = false"
     />
+
+    <!-- 发送邮件对话框 -->
+    <SendEmailDialog ref="sendEmailDialogRef" />
   </div>
 </template>
 
@@ -98,6 +102,7 @@ import { Upload, Download } from '@element-plus/icons-vue'
 import FilterBar, { type ResumeFilters } from '@/components/resume/FilterBar.vue'
 import ResumeCard from '@/components/resume/ResumeCard.vue'
 import UploadDialog from '@/components/resume/UploadDialog.vue'
+import SendEmailDialog from '@/components/email/SendEmailDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingOverlay from '@/components/common/LoadingOverlay.vue'
 import { useResumeStore } from '@/stores/resume'
@@ -113,6 +118,7 @@ const loading = ref<boolean>(false)
 const uploadVisible = ref<boolean>(false)
 const page = ref<number>(1)
 const pageSize = ref<number>(20)
+const sendEmailDialogRef = ref<InstanceType<typeof SendEmailDialog>>()
 
 /** 多选状态：resume_id → 是否选中 */
 const selectedMap = reactive<Record<string, boolean>>({})
@@ -233,6 +239,20 @@ async function handleDeleteResume(resumeId: string): Promise<void> {
  */
 function handleSelectionChange(): void {
   selectedIds.value = Object.keys(selectedMap).filter((k) => selectedMap[k])
+}
+
+/**
+ * 处理发送邮件（从卡片触发）
+ * 预填候选人姓名作为模板变量
+ * @param resumeId 简历 ID
+ */
+function handleSendEmail(resumeId: string): void {
+  const item = resumeStore.list.find((r) => r.resume_id === resumeId)
+  sendEmailDialogRef.value?.open({
+    variables: {
+      candidate_name: item?.name ?? '',
+    },
+  })
 }
 
 /**

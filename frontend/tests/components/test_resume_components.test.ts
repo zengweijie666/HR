@@ -67,6 +67,14 @@ describe('components/resume/ResumeCard', () => {
     expect(wrapper.find('.resume-card__badge').exists()).toBe(true)
     expect(wrapper.text()).toContain('解析中')
   })
+
+  it('点击邮件按钮触发 send-email 且不触发卡片 click', async () => {
+    const wrapper = mount(ResumeCard, { props: { resume } })
+    await wrapper.find('.resume-card__email').trigger('click')
+    expect(wrapper.emitted('send-email')).toBeTruthy()
+    expect(wrapper.emitted('send-email')![0]).toEqual(['r1'])
+    expect(wrapper.emitted('click')).toBeFalsy()
+  })
 })
 
 describe('components/resume/FilterBar', () => {
@@ -83,13 +91,13 @@ describe('components/resume/FilterBar', () => {
     expect(wrapper.emitted('search')![0][0]).toMatchObject({ keyword: 'vue' })
   })
 
-  it('重置按钮触发 search 且清空条件', async () => {
+  it('重置按钮触发 reset 事件且清空条件', async () => {
     const wrapper = mount(FilterBar)
     const resetBtn = wrapper
       .findAll('button')
       .find((b) => /重置/.test(b.text() || ''))
     await resetBtn!.trigger('click')
-    expect(wrapper.emitted('search')).toBeTruthy()
-    expect(wrapper.emitted('search')![0][0]).toEqual({})
+    expect(wrapper.emitted('reset')).toBeTruthy()
+    expect(wrapper.emitted('search')).toBeFalsy()
   })
 })

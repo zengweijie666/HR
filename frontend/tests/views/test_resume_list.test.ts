@@ -45,6 +45,11 @@ vi.mock('@/api/resume', () => ({
   updateNotes: vi.fn(),
 }))
 
+vi.mock('@/api/email', () => ({
+  listTemplates: vi.fn(() => Promise.resolve([])),
+  sendMail: vi.fn(() => Promise.resolve({ status: 'success', message: 'ok' })),
+}))
+
 import ResumeList from '@/views/ResumeList.vue'
 
 describe('views/ResumeList', () => {
