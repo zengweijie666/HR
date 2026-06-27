@@ -43,6 +43,55 @@
       placeholder="最低年限"
     />
 
+    <!-- 收藏筛选 -->
+    <el-select
+      v-model="favoriteFilter"
+      class="filter-bar__field filter-bar__field--fav"
+      placeholder="收藏"
+      clearable
+      style="width: 120px"
+      @change="handleSearch"
+    >
+      <el-option label="已收藏" :value="true" />
+      <el-option label="未收藏" :value="false" />
+    </el-select>
+
+    <!-- 入库日期范围 -->
+    <el-date-picker
+      v-model="dateRange"
+      class="filter-bar__field filter-bar__field--date"
+      type="daterange"
+      range-separator="至"
+      start-placeholder="开始日期"
+      end-placeholder="结束日期"
+      value-format="YYYY-MM-DD"
+      style="width: 260px"
+      @change="handleSearch"
+    />
+
+    <!-- 排序字段 -->
+    <el-select
+      v-model="sortBy"
+      class="filter-bar__field filter-bar__field--sort"
+      style="width: 140px"
+      @change="handleSearch"
+    >
+      <el-option label="入库时间" value="created_at" />
+      <el-option label="工作经验" value="work_years" />
+      <el-option label="学历" value="education_level" />
+    </el-select>
+
+    <!-- 排序方向 -->
+    <el-select
+      v-model="sortOrder"
+      class="filter-bar__field filter-bar__field--order"
+      style="width: 100px"
+      @change="handleSearch"
+    >
+      <el-option label="降序" value="desc" />
+      <el-option label="升序" value="asc" />
+    </el-select>
+
     <div class="filter-bar__actions">
       <el-button type="primary" class="filter-bar__search" @click="handleSearch">
         <el-icon class="filter-bar__btn-icon"><Search /></el-icon>
@@ -67,6 +116,11 @@ export interface ResumeFilters {
   keyword?: string
   education_min?: number
   work_years_min?: number
+  is_favorite?: boolean
+  date_from?: string
+  date_to?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
 
 const emit = defineEmits<{
@@ -79,6 +133,10 @@ const emit = defineEmits<{
 const keyword = ref<string>('')
 const educationMin = ref<number | undefined>(undefined)
 const workYearsMin = ref<number | undefined>(undefined)
+const favoriteFilter = ref<boolean | undefined>(undefined)
+const dateRange = ref<[string, string] | null>(null)
+const sortBy = ref<string>('created_at')
+const sortOrder = ref<'asc' | 'desc'>('desc')
 
 /** 触发搜索事件 */
 function handleSearch(): void {
@@ -86,6 +144,11 @@ function handleSearch(): void {
     keyword: keyword.value || undefined,
     education_min: educationMin.value,
     work_years_min: workYearsMin.value,
+    is_favorite: favoriteFilter.value,
+    date_from: dateRange.value?.[0],
+    date_to: dateRange.value?.[1],
+    sort_by: sortBy.value,
+    sort_order: sortOrder.value,
   })
 }
 
@@ -94,6 +157,10 @@ function handleReset(): void {
   keyword.value = ''
   educationMin.value = undefined
   workYearsMin.value = undefined
+  favoriteFilter.value = undefined
+  dateRange.value = null
+  sortBy.value = 'created_at'
+  sortOrder.value = 'desc'
   emit('reset')
 }
 </script>

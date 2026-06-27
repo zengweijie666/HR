@@ -100,4 +100,31 @@ describe('components/resume/FilterBar', () => {
     expect(wrapper.emitted('reset')).toBeTruthy()
     expect(wrapper.emitted('search')).toBeFalsy()
   })
+
+  it('点击搜索按钮触发 search 携带 sort_by 和 sort_order 默认值', async () => {
+    const wrapper = mount(FilterBar)
+    const searchBtn = wrapper
+      .findAll('button')
+      .find((b) => /搜索/.test(b.text() || ''))
+    await searchBtn!.trigger('click')
+    const emitted = wrapper.emitted('search')
+    expect(emitted).toBeTruthy()
+    expect(emitted![0][0]).toHaveProperty('sort_by')
+    expect(emitted![0][0]).toHaveProperty('sort_order')
+  })
+
+  it('渲染日期范围选择器', () => {
+    const wrapper = mount(FilterBar)
+    expect(wrapper.find('.filter-bar__field--date').exists()).toBe(true)
+  })
+
+  it('渲染排序选项下拉', () => {
+    const wrapper = mount(FilterBar)
+    expect(wrapper.find('.filter-bar__field--sort').exists()).toBe(true)
+  })
+
+  it('渲染收藏筛选下拉', () => {
+    const wrapper = mount(FilterBar)
+    expect(wrapper.find('.filter-bar__field--fav').exists()).toBe(true)
+  })
 })
