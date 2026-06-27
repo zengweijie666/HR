@@ -56,13 +56,13 @@
           label-position="top"
           @submit.prevent="handleLogin"
         >
-          <el-form-item label="用户名" prop="username">
+          <el-form-item label="邮箱" prop="email">
             <el-input
-              v-model="form.username"
+              v-model="form.email"
               size="large"
-              placeholder="请输入用户名"
-              :prefix-icon="User"
-              autocomplete="username"
+              placeholder="请输入邮箱"
+              :prefix-icon="Message"
+              autocomplete="email"
             />
           </el-form-item>
 
@@ -111,7 +111,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { Message, Lock } from '@element-plus/icons-vue'
 import { login } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import RegisterDialog from '@/components/auth/RegisterDialog.vue'
@@ -124,12 +124,15 @@ const loading = ref<boolean>(false)
 const registerDialogRef = ref<InstanceType<typeof RegisterDialog>>()
 
 const form = reactive({
-  username: '',
+  email: '',
   password: '',
 })
 
 const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
@@ -149,7 +152,7 @@ async function handleLogin(): Promise<void> {
   loading.value = true
   try {
     const data = await login({
-      username: form.username.trim(),
+      email: form.email.trim(),
       password: form.password,
     })
     authStore.setToken(data.access_token, data.refresh_token)

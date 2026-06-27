@@ -30,8 +30,8 @@ export interface CreateUserPayload {
   username: string
   password: string
   role: UserRole
-  email?: string
-  name?: string
+  email: string
+  name: string
 }
 
 export interface ListUsersParams {

@@ -16,10 +16,10 @@
         <el-input v-model="form.password" type="password" show-password placeholder="8-32 字符" />
       </el-form-item>
       <el-form-item label="邮箱" prop="email">
-        <el-input v-model="form.email" placeholder="可选" />
+        <el-input v-model="form.email" placeholder="必填" />
       </el-form-item>
       <el-form-item label="姓名" prop="name">
-        <el-input v-model="form.name" placeholder="可选" />
+        <el-input v-model="form.name" placeholder="必填" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -58,6 +58,11 @@ const rules: FormRules = {
     { required: true, message: '请输入密码', trigger: 'blur' },
     { min: 8, max: 32, message: '8-32 字符', trigger: 'blur' },
   ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
 }
 
 /** 打开对话框并重置表单 */
@@ -82,8 +87,8 @@ async function handleSubmit(): Promise<void> {
     await register({
       username: form.username.trim(),
       password: form.password,
-      email: form.email || undefined,
-      name: form.name || undefined,
+      email: form.email.trim(),
+      name: form.name.trim(),
     })
     ElMessage.success('申请已提交，待管理员审批')
     visible.value = false

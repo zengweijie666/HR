@@ -8,7 +8,7 @@ export type UserRole = 'admin' | 'hr'
 export type UserStatus = 'approved' | 'pending' | 'disabled'
 
 export interface LoginRequest {
-  username: string
+  email: string
   password: string
 }
 
@@ -32,8 +32,8 @@ export interface UserInfo {
 export interface RegisterRequest {
   username: string
   password: string
-  email?: string
-  name?: string
+  email: string
+  name: string
 }
 
 export interface ChangePasswordRequest {

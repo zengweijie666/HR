@@ -174,6 +174,11 @@ const createForm = reactive({
 const createRules: FormRules = {
   username: [{ required: true, min: 3, max: 20, message: '3-20 字符', trigger: 'blur' }],
   password: [{ required: true, min: 8, max: 32, message: '8-32 字符', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }],
 }
 
@@ -236,8 +241,8 @@ async function handleCreate(): Promise<void> {
       username: createForm.username.trim(),
       password: createForm.password,
       role: createForm.role,
-      email: createForm.email || undefined,
-      name: createForm.name || undefined,
+      email: createForm.email.trim(),
+      name: createForm.name.trim(),
     })
     ElMessage.success('创建成功')
     createVisible.value = false
