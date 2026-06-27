@@ -54,7 +54,7 @@ describe('views/Settings', () => {
   it('加载配置后回填 SMTP 主机', async () => {
     const wrapper = mount(Settings)
     await flushPromises()
-    const hostInput = wrapper.find('input[placeholder="如 smtp.example.com"]')
+    const hostInput = wrapper.find('input[placeholder*="smtp.qq.com"]')
     expect((hostInput.element as HTMLInputElement).value).toBe('smtp.example.com')
   })
 

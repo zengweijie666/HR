@@ -62,12 +62,15 @@ describe('views/Layout', () => {
     expect(app.sidebarCollapsed).toBe(false)
   })
 
-  it('侧边栏菜单包含工作台/简历库/JD 匹配/数据看板/设置', () => {
+  it('侧边栏菜单包含工作台/简历库/JD 匹配/邮件中心/数据看板/设置（admin）', () => {
+    const auth = useAuthStore()
+    auth.user = { user_id: 'u1', name: 'admin', email: 'admin@test.com', role: 'admin' } as never
     const wrapper = mount(Layout, mountOptions)
     const text = wrapper.find('.sidebar').text()
     expect(text).toContain('工作台')
     expect(text).toContain('简历库')
     expect(text).toContain('JD 匹配')
+    expect(text).toContain('邮件中心')
     expect(text).toContain('数据看板')
     expect(text).toContain('设置')
   })

@@ -31,10 +31,10 @@ describe('views/Login', () => {
     loginMock.mockReset()
   })
 
-  it('渲染登录表单（含用户名与密码输入）', () => {
+  it('渲染登录表单（含邮箱与密码输入）', () => {
     const wrapper = mount(Login)
     expect(wrapper.find('.page-login__form').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="请输入用户名"]').exists()).toBe(true)
+    expect(wrapper.find('input[placeholder="请输入邮箱"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请输入密码"]').exists()).toBe(true)
   })
 
@@ -53,7 +53,7 @@ describe('views/Login', () => {
     })
 
     const wrapper = mount(Login)
-    await wrapper.find('input[placeholder="请输入用户名"]').setValue('admin')
+    await wrapper.find('input[placeholder="请输入邮箱"]').setValue('admin@test.com')
     await wrapper.find('input[placeholder="请输入密码"]').setValue('123456')
     await flushPromises()
 
@@ -62,7 +62,7 @@ describe('views/Login', () => {
 
     expect(loginMock).toHaveBeenCalled()
     expect(loginMock).toHaveBeenCalledWith({
-      username: 'admin',
+      email: 'admin@test.com',
       password: '123456',
     })
     expect(localStorage.getItem('access_token')).toBe('test-access')
