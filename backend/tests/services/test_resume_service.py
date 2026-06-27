@@ -143,3 +143,21 @@ async def test_list_search_includes_tags(svc):
     # $or 条件中应包含 tags 字段
     or_conditions = query.get("$or", [])
     assert any("tags" in cond for cond in or_conditions), f"关键词搜索应包含 tags 字段, 实际: {or_conditions}"
+
+
+def test_extract_projects_from_text():
+    """正则兜底提取项目经历"""
+    from app.services.resume_service import _extract_projects_from_text
+    text = """
+工作经历
+公司A 高级开发工程师
+项目名称：电商平台重构
+技术栈：Java, Spring Cloud
+负责微服务架构设计和核心模块开发
+
+项目：数据中台建设
+主导数据采集和处理链路
+"""
+    projects = _extract_projects_from_text(text)
+    assert len(projects) >= 1
+    assert "电商平台" in projects[0]["name"] or "数据中台" in projects[0]["name"]

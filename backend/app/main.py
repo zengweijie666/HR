@@ -56,6 +56,13 @@ async def lifespan(app: FastAPI):
         logger.info("Milvus Collection 已就绪")
     except Exception as e:
         logger.warning(f"Milvus 预热失败，简历解析相关接口将不可用: {e}")
+    # 预热 BGE-M3 模型：避免首次上传简历时才加载导致解析很慢
+    try:
+        from app.core.embedding import embedding_model
+        _ = embedding_model.model  # 触发懒加载
+        logger.info("BGE-M3 模型已预热")
+    except Exception as e:
+        logger.warning(f"BGE-M3 预热失败，首次解析将较慢: {e}")
     # 自动初始化管理员账号
     try:
         from app.services.auth_service import AuthService

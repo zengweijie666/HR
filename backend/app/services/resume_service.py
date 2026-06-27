@@ -117,6 +117,10 @@ class ResumeService:
             skills = structured.get("skills")
             if not isinstance(skills, list) or len(skills) == 0:
                 structured["skills"] = regex_result.get("skills", [])
+            # projects 为空时用正则补充
+            projects = structured.get("projects")
+            if not isinstance(projects, list) or len(projects) == 0:
+                structured["projects"] = regex_result.get("projects", [])
             # 4. 字段 None 兜底
             for k in ("name", "phone", "email", "gender", "location", "education", "summary", "salary"):
                 if structured.get(k) is None:
@@ -615,7 +619,41 @@ def _regex_extract_fallback(raw_text: str, file_name: str = "") -> dict:
             found_skills.append(skill)
     result["skills"] = found_skills[:20]
 
+    # 项目经历兜底提取：从文本中识别"项目名称:"/"项目经历"等模式
+    result["projects"] = _extract_projects_from_text(raw_text)
+
     return result
+
+
+def _extract_projects_from_text(raw_text: str) -> list:
+    """从简历文本中正则提取项目经历
+
+    入参:
+        raw_text: 简历原始文本
+    出参:
+        项目列表，每项含 name/role/description
+    """
+    if not raw_text:
+        return []
+    projects = []
+    # 匹配 "项目名称：XXX" / "项目：XXX" / "项目经历：XXX" 等
+    project_pattern = re.compile(
+        r'(?:项目名称|项目|项目经历|项目经验)\s*[:：]\s*(.+?)(?=\n(?:项目|工作|教育|技能|自我|个人|证书|语言|兴趣爱好|$))',
+        re.DOTALL
+    )
+    for m in project_pattern.finditer(raw_text):
+        block = m.group(1).strip()
+        if not block:
+            continue
+        lines = [l.strip() for l in block.split('\n') if l.strip()]
+        name = lines[0] if lines else ""
+        description = "\n".join(lines[1:]) if len(lines) > 1 else ""
+        projects.append({
+            "name": name[:100],
+            "role": "",
+            "description": description[:500],
+        })
+    return projects[:10]  # 最多 10 个项目
 
 
 def _extract_age_from_text(raw_text: str) -> int:
