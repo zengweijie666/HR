@@ -66,10 +66,21 @@ request.interceptors.response.use(
   }) as unknown as (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>,
   /**
    * 网络或 HTTP 错误兜底
+   * 后端业务异常返回 HTTP 4xx/5xx（如 401/403/404），需在此处理跳转与提示
    * @param error 请求错误对象
    */
   (error: unknown) => {
-    const msg = error instanceof Error ? error.message : '网络异常，请稍后重试'
+    // axios 错误：从 response 中提取 HTTP 状态码与业务码
+    const axiosErr = error as { response?: { status?: number; data?: ApiResponse }; message?: string }
+    const status = axiosErr.response?.status
+    const bizCode = axiosErr.response?.data?.code
+    // HTTP 401 或业务码 1002（token 失效）：清空凭证并跳转登录页
+    if (status === 401 || bizCode === CODE_TOKEN_EXPIRED) {
+      clearAuthAndRedirect()
+      return Promise.reject(new Error(axiosErr.response?.data?.message || '登录已过期'))
+    }
+    // 其他业务错误：提取后端 message，无则用网络异常兜底
+    const msg = axiosErr.response?.data?.message || (error instanceof Error ? error.message : '网络异常，请稍后重试')
     ElMessage.error(msg)
     return Promise.reject(error)
   },

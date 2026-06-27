@@ -168,12 +168,51 @@ class AgentService:
                     yield _sse_event("rank", {"ranked": ranked})
                     yield _sse_event("candidates", {"candidates": candidates})
 
-            # 3. 流式 token
+            # 3. 流式 token（将检索到的候选人作为上下文传入，LLM 基于 RAG 结果回答）
             full_response = ""
+            candidates = state.get("candidates", [])
+            intent_type = state.get("intent_type", "chitchat")
+
+            # 构建回答 messages
+            if intent_type in ("search", "compare") and candidates:
+                from app.agent.prompts import SEARCH_RESPOND_PROMPT
+                system_prompt = (
+                    "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
+                    "1. 只能使用提供的候选人数据回答，绝对禁止编造不存在的候选人\n"
+                    "2. 不要生成'理想候选人简历描述'等虚构内容\n"
+                    "3. 用户要求N名候选人时，只展示前N名\n"
+                    "4. 用中文简洁回答，引用候选人姓名与核心技能\n"
+                )
+                user_prompt = SEARCH_RESPOND_PROMPT.format(
+                    query=query,
+                    candidates=json.dumps(candidates[:10], ensure_ascii=False),
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+            elif intent_type in ("search", "compare") and not candidates:
+                from app.agent.prompts import CLARIFY_PROMPT
+                clarify_prompt = CLARIFY_PROMPT.format(query=query)
+                messages = [
+                    {"role": "system", "content": "你是 TalentSense HR 招聘助手。没有检索到候选人时，明确告知用户当前库中没有匹配人员，并引导用户补充需求细节或上传更多简历。不要编造候选人。"},
+                    {"role": "user", "content": clarify_prompt},
+                ]
+            elif intent_type == "chitchat":
+                from app.agent.prompts import CHITCHAT_PROMPT
+                chitchat_prompt = CHITCHAT_PROMPT.format(query=query)
+                messages = [
+                    {"role": "system", "content": "你是 TalentSense HR 招聘助手。友好回答用户的闲聊。"},
+                    {"role": "user", "content": chitchat_prompt},
+                ]
+            else:
+                messages = [
+                    {"role": "system", "content": "你是 TalentSense HR 招聘助手。"},
+                    {"role": "user", "content": query},
+                ]
+
             try:
-                async for tok in llm_client.chat_stream(
-                    [{"role": "user", "content": query}]
-                ):
+                async for tok in llm_client.chat_stream(messages):
                     full_response += tok
                     yield _sse_event("token", {"delta": tok})
             except Exception as e:
