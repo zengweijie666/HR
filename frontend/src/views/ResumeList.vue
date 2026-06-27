@@ -90,7 +90,7 @@
  * ResumeList 简历库列表
  * 整合筛选/分页/上传/收藏/导出
  */
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Upload, Download } from '@element-plus/icons-vue'
@@ -214,15 +214,76 @@ async function handleExport(): Promise<void> {
 }
 
 /**
- * 处理上传成功
+ * 处理上传成功：刷新列表并启动轮询
  */
 function handleUploaded(): void {
   page.value = 1
-  void loadList()
+  void loadList().then(() => {
+    startPolling()
+  })
 }
 
 onMounted(() => {
-  void loadList()
+  void loadList().then(() => {
+    const hasParsing = resumeStore.list.some((r) => r.parse_status === 'parsing')
+    if (hasParsing) {
+      startPolling()
+    }
+  })
+})
+
+/**
+ * 轮询刷新：上传后后台异步解析时，每 3 秒刷新一次列表，
+ * 直到没有 parsing 状态的简历为止。
+ * 使用静默刷新（不显示 loading 遮罩）避免闪烁。
+ */
+const POLL_INTERVAL_MS = 3000
+const MAX_POLL_TIMES = 40
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let pollCount = 0
+
+function startPolling(): void {
+  stopPolling()
+  pollCount = 0
+  pollTimer = setTimeout(pollTick, POLL_INTERVAL_MS)
+}
+
+function stopPolling(): void {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function pollTick(): Promise<void> {
+  pollCount++
+  try {
+    // 静默刷新，不触发 loading 遮罩
+    const query: ResumeListQuery = {
+      page: page.value,
+      page_size: pageSize.value,
+      ...resumeStore.filters,
+    }
+    const res = await getResumeList(query)
+    resumeStore.setList(res.list || [])
+    resumeStore.setTotal(res.total || 0)
+    // 仍有 parsing 状态的简历且未超过最大轮询次数 → 继续轮询
+    const hasParsing = (res.list || []).some(
+      (r: { parse_status?: string }) => r.parse_status === 'parsing',
+    )
+    if (hasParsing && pollCount < MAX_POLL_TIMES) {
+      pollTimer = setTimeout(pollTick, POLL_INTERVAL_MS)
+    } else {
+      pollTimer = null
+    }
+  } catch {
+    // 轮询失败不提示，停止轮询
+    pollTimer = null
+  }
+}
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 
