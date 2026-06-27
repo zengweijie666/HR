@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 .env
 *.log
-models/
+/models/
 .pytest_cache/
 .coverage
 htmlcov/
