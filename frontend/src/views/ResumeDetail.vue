@@ -40,9 +40,14 @@
               </template>
             </p>
             <div class="detail-card__contact">
-              <span class="detail-card__contact-item mono">{{ detail.basic_info?.phone_masked || '-' }}</span>
-              <span v-if="detail.basic_info?.email_masked" class="detail-card__contact-item mono">
-                {{ detail.basic_info.email_masked }}
+              <span class="detail-card__contact-item mono">
+                {{ detail.basic_info?.phone || detail.basic_info?.phone_masked || '-' }}
+              </span>
+              <span
+                v-if="detail.basic_info?.email || detail.basic_info?.email_masked"
+                class="detail-card__contact-item mono"
+              >
+                {{ detail.basic_info?.email || detail.basic_info?.email_masked }}
               </span>
             </div>
 
@@ -340,11 +345,12 @@ function handleSimilar(): void {
 
 /**
  * 打开发送邮件对话框
- * 预填候选人姓名作为模板变量
+ * 预填收件人邮箱和候选人姓名作为模板变量
  */
 function handleSendEmail(): void {
   if (!detail.value) return
   sendEmailDialogRef.value?.open({
+    to_email: detail.value.basic_info?.email || detail.value.basic_info?.email_masked || '',
     variables: {
       candidate_name: detail.value.basic_info?.name ?? detail.value.name ?? '',
       position: '',

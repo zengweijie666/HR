@@ -34,6 +34,8 @@ const detailMock = {
   created_at: '2026-06-01',
   basic_info: {
     name: '张三',
+    phone: '13800138000',
+    email: 'zhangsan@test.com',
     phone_masked: '138****8888',
     email_masked: 'a**@x.com',
     gender: '男',
@@ -118,5 +120,13 @@ describe('views/ResumeDetail', () => {
     expect(wrapper.find('.detail-card__work-company').text()).toBe('HR 招聘系统')
     expect(wrapper.find('.detail-card__work-position').text()).toBe('前端负责人')
     expect(wrapper.find('.detail-card__work-desc').text()).toContain('Vue3 + FastAPI')
+  })
+
+  it('详情页优先显示原始手机和邮箱（admin 可见）', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    const contactText = wrapper.find('.detail-card__contact').text()
+    expect(contactText).toContain('13800138000')
+    expect(contactText).toContain('zhangsan@test.com')
   })
 })
