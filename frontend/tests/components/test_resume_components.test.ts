@@ -75,6 +75,13 @@ describe('components/resume/ResumeCard', () => {
     expect(wrapper.emitted('send-email')![0]).toEqual(['r1'])
     expect(wrapper.emitted('click')).toBeFalsy()
   })
+
+  it('渲染入库相对时间', () => {
+    const wrapper = mount(ResumeCard, {
+      props: { resume: { ...resume, created_at: '2026-06-25T08:00:00Z' } },
+    })
+    expect(wrapper.find('.resume-card__time').exists()).toBe(true)
+  })
 })
 
 describe('components/resume/FilterBar', () => {

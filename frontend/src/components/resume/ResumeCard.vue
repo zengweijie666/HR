@@ -79,6 +79,10 @@
         <span class="resume-card__edu">{{ resume.education || '学历未知' }}</span>
         <span v-if="resume.location" class="resume-card__dot">·</span>
         <span v-if="resume.location" class="resume-card__loc">{{ resume.location }}</span>
+        <span v-if="resume.created_at" class="resume-card__dot">·</span>
+        <span v-if="resume.created_at" class="resume-card__time">
+          {{ formatRelativeTime(resume.created_at) }}
+        </span>
       </div>
       <div class="resume-card__foot-right">
         <div class="resume-card__salary">{{ formatSalary(resume.expected_salary) }}</div>
@@ -103,7 +107,7 @@
  */
 import { computed } from 'vue'
 import { Star, StarFilled, Delete, Promotion } from '@element-plus/icons-vue'
-import { formatSalary } from '@/utils/format'
+import { formatSalary, formatRelativeTime } from '@/utils/format'
 import { PARSE_STATUS } from '@/utils/constant'
 import type { ResumeListItem } from '@/types/resume'
 
@@ -358,6 +362,12 @@ function handleSendEmail(): void {
 
   &__edu {
     color: var(--color-ink);
+  }
+
+  &__time {
+    font-size: var(--text-xs);
+    color: var(--color-ink-mute);
+    font-family: var(--font-mono);
   }
 
   &__salary {
