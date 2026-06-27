@@ -5,6 +5,8 @@
 功能描述: FastAPI 应用入口，负责路由挂载、启动事件、全局异常处理
 """
 import json
+import uuid
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -54,6 +56,30 @@ async def lifespan(app: FastAPI):
         logger.info("Milvus Collection 已就绪")
     except Exception as e:
         logger.warning(f"Milvus 预热失败，简历解析相关接口将不可用: {e}")
+    # 自动初始化管理员账号
+    try:
+        from app.services.auth_service import AuthService
+        admin_username = settings.ADMIN_USERNAME
+        exists = await MongoDB.db.users.find_one({"username": admin_username})
+        if exists:
+            logger.info(f"管理员账号 {admin_username} 已存在")
+        else:
+            user_id = f"u_{uuid.uuid4().hex[:12]}"
+            now = datetime.now(timezone.utc).isoformat()
+            await MongoDB.db.users.insert_one({
+                "user_id": user_id,
+                "username": admin_username,
+                "password_hash": AuthService.hash_password(settings.ADMIN_PASSWORD),
+                "email": settings.ADMIN_EMAIL,
+                "name": "管理员",
+                "role": "admin",
+                "status": "approved",
+                "created_at": now,
+                "updated_at": now,
+            })
+            logger.info(f"管理员账号 {admin_username} 已自动创建")
+    except Exception as e:
+        logger.warning(f"管理员初始化失败: {e}")
     # 重置遗留的 parsing 状态（进程上次崩溃会导致简历永久卡 parsing）
     try:
         await MongoDB.db.resumes.update_many(

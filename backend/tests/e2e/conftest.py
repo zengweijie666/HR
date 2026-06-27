@@ -42,7 +42,8 @@ def e2e_env():
         "user_id": "u_admin",
         "username": "admin",
         "password_hash": password_hash,
-        "role": "hr",
+        "role": "admin",
+        "status": "approved",
         "email": "admin@talentsense.com",
     })
 

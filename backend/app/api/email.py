@@ -8,7 +8,7 @@
 """
 from fastapi import APIRouter, Depends
 from app.services.email_service import EmailService
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_admin
 from app.core.response import success
 
 router = APIRouter()
@@ -26,14 +26,14 @@ async def send_recommendation(body: dict, user: dict = Depends(get_current_user)
 
 
 @router.get("/config")
-async def get_config(user: dict = Depends(get_current_user)):
-    """AC18.1: 获取 SMTP 配置（脱敏）"""
+async def get_config(user: dict = Depends(require_admin)):
+    """AC18.1: 获取 SMTP 配置（脱敏，仅 admin）"""
     result = await EmailService().get_config()
     return success(data=result)
 
 
 @router.put("/config")
-async def update_config(body: dict, user: dict = Depends(get_current_user)):
-    """AC18.2: 更新 SMTP 配置（加密存储）"""
+async def update_config(body: dict, user: dict = Depends(require_admin)):
+    """AC18.2: 更新 SMTP 配置（加密存储，仅 admin）"""
     await EmailService().update_config(body)
     return success()

@@ -55,11 +55,11 @@ def test_get_detail_not_found():
 
 
 def test_delete_resume():
-    """删除应返回 code=0"""
+    """删除应返回 code=0（仅 admin）"""
     with patch("app.api.resumes.ResumeService") as MockSvc:
         instance = MockSvc.return_value
         instance.delete = AsyncMock()
-        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "hr"})):
+        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "admin"})):
             client = TestClient(app, raise_server_exceptions=False)
             r = client.delete("/api/v1/resumes/r1", headers={"Authorization": "Bearer fake"})
             assert r.json()["code"] == 0

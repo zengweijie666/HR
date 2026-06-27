@@ -9,7 +9,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
 from app.services.resume_service import ResumeService
 from app.services.tag_service import TagService
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_admin
 from app.core.response import success
 
 router = APIRouter()
@@ -61,8 +61,8 @@ async def get_detail(resume_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.delete("/{resume_id}")
-async def delete(resume_id: str, user: dict = Depends(get_current_user)):
-    """AC6.1-6.4: 删除简历"""
+async def delete(resume_id: str, user: dict = Depends(require_admin)):
+    """AC6.1-6.4: 删除简历（仅 admin）"""
     await ResumeService().delete(resume_id)
     return success()
 
