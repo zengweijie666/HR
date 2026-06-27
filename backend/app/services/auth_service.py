@@ -2,17 +2,18 @@
 文件名: app/services/auth_service.py
 创建时间: 2026-06-26
 作者: TalentSense Team
-功能描述: 认证服务，JWT 生成/校验 + Redis Token 黑名单
+功能描述: 认证服务，JWT 生成/校验 + Redis Token 黑名单 + 注册/改密
 入参: username/password/token
-出参: TokenResponse / UserInfo
+出参: TokenResponse / UserInfo / 注册结果
 对应 Business-Requirements F01
 """
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import bcrypt
 from jose import jwt, JWTError
 from app.core.config import settings
-from app.core.exceptions import AuthError
+from app.core.exceptions import AuthError, ConflictError
 from app.core.logger import logger
 from app.models.auth import TokenResponse, UserInfo
 
@@ -73,10 +74,16 @@ class AuthService:
         return jwt.encode({**payload, "exp": expire, "type": "refresh"}, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
     async def login(self, username: str, password: str) -> TokenResponse:
-        """AC1.1/AC1.2"""
+        """AC1.1/AC1.2 + status 校验（pending/disabled 拒绝登录）"""
         user_doc = await self.users_coll.find_one({"username": username})
         if not user_doc or not self.verify_password(password, user_doc["password_hash"]):
             raise AuthError("用户名或密码错误")
+        # status 校验
+        status = user_doc.get("status", "approved")
+        if status == "pending":
+            raise AuthError("账号待审批，请联系管理员")
+        if status == "disabled":
+            raise AuthError("账号已禁用，请联系管理员")
         payload = {"user_id": user_doc["user_id"], "username": user_doc["username"], "role": user_doc.get("role", "hr")}
         access = self.create_access_token(payload)
         refresh = self.create_refresh_token(payload)
@@ -122,3 +129,55 @@ class AuthService:
             access_token=access, refresh_token=new_refresh, expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             user=UserInfo(user_id=new_payload["user_id"], username=new_payload["username"], role=new_payload["role"])
         )
+
+    async def register(self, username: str, password: str, email: str | None = None, name: str | None = None) -> dict:
+        """HR 自助注册（status=pending, role=hr）
+
+        入参:
+            username: 用户名
+            password: 明文密码
+            email: 邮箱（可选）
+            name: 显示名（可选，默认用 username）
+        出参:
+            {"user_id", "username", "status"}
+        异常:
+            ConflictError: 用户名已存在
+        """
+        existing = await self.users_coll.find_one({"username": username})
+        if existing:
+            raise ConflictError("用户名已存在")
+        user_id = f"u_{uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc).isoformat()
+        doc = {
+            "user_id": user_id,
+            "username": username,
+            "password_hash": self.hash_password(password),
+            "email": email,
+            "name": name or username,
+            "role": "hr",
+            "status": "pending",
+            "created_at": now,
+            "updated_at": now,
+        }
+        await self.users_coll.insert_one(doc)
+        logger.info(f"用户注册申请: {username} (pending)")
+        return {"user_id": user_id, "username": username, "status": "pending"}
+
+    async def change_password(self, user_id: str, old_password: str, new_password: str) -> None:
+        """用户修改自己密码
+
+        入参:
+            user_id: 用户 ID
+            old_password: 旧密码
+            new_password: 新密码
+        异常:
+            AuthError: 旧密码错误 / 用户不存在
+        """
+        doc = await self.users_coll.find_one({"user_id": user_id})
+        if not doc or not self.verify_password(old_password, doc["password_hash"]):
+            raise AuthError("旧密码错误")
+        await self.users_coll.update_one(
+            {"user_id": user_id},
+            {"$set": {"password_hash": self.hash_password(new_password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        logger.info(f"用户 {user_id} 修改密码成功")
