@@ -22,7 +22,7 @@
 
     <!-- 工具栏 -->
     <div class="page-resume-list__toolbar">
-      <FilterBar class="page-resume-list__filter" @search="handleSearch" />
+      <FilterBar class="page-resume-list__filter" @search="handleSearch" @reset="handleReset" />
       <div class="page-resume-list__actions">
         <el-button type="primary" class="upload-btn" @click="uploadVisible = true">
           <el-icon><Upload /></el-icon>
@@ -153,6 +153,15 @@ function handleSearch(filters: ResumeFilters): void {
 }
 
 /**
+ * 处理重置：完全清空筛选条件并刷新列表
+ */
+function handleReset(): void {
+  resumeStore.replaceFilters({})
+  page.value = 1
+  void loadList()
+}
+
+/**
  * 处理分页变化
  * @param p 目标页码
  */
@@ -205,6 +214,13 @@ async function handleDeleteResume(resumeId: string): Promise<void> {
   try {
     await deleteResume(resumeId)
     ElMessage.success('删除成功')
+    // 清理选中状态
+    delete selectedMap[resumeId]
+    handleSelectionChange()
+    // 如果当前页删完，回退到上一页
+    if (resumeStore.list.length === 1 && page.value > 1) {
+      page.value--
+    }
     await loadList()
   } catch (err) {
     const msg = err instanceof Error ? err.message : '删除失败'

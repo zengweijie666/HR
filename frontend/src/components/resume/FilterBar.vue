@@ -72,6 +72,8 @@ export interface ResumeFilters {
 const emit = defineEmits<{
   /** 触发搜索 */
   (e: 'search', filters: ResumeFilters): void
+  /** 触发重置（完全清空筛选） */
+  (e: 'reset'): void
 }>()
 
 const keyword = ref<string>('')
@@ -92,7 +94,7 @@ function handleReset(): void {
   keyword.value = ''
   educationMin.value = undefined
   workYearsMin.value = undefined
-  emit('search', {})
+  emit('reset')
 }
 </script>
 

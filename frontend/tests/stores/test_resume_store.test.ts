@@ -58,6 +58,15 @@ describe('stores/resume', () => {
     expect(store.filters).toEqual({})
   })
 
+  it('replaceFilters 完全替换而非合并', () => {
+    const store = useResumeStore()
+    store.setFilters({ keyword: 'Java', education_min: 2 })
+    expect(store.filters.keyword).toBe('Java')
+    store.replaceFilters({})
+    expect(store.filters.keyword).toBeUndefined()
+    expect(store.filters.education_min).toBeUndefined()
+  })
+
   it('updateFavorite 更新收藏状态', () => {
     const store = useResumeStore()
     store.setList([makeItem('r1', false)])

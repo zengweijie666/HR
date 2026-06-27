@@ -41,6 +41,14 @@ export const useResumeStore = defineStore('resume', () => {
     filters.value = { ...filters.value, ...f }
   }
 
+  /**
+   * 完全替换查询条件（用于重置场景）
+   * @param f 新的筛选字段（空对象表示清空全部）
+   */
+  function replaceFilters(f: Partial<ResumeListQuery>): void {
+    filters.value = { ...f }
+  }
+
   /** 重置查询条件 */
   function resetFilters(): void {
     filters.value = {}
@@ -86,6 +94,7 @@ export const useResumeStore = defineStore('resume', () => {
     setList,
     setTotal,
     setFilters,
+    replaceFilters,
     resetFilters,
     updateFavorite,
     updateTags,
