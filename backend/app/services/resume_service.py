@@ -93,6 +93,17 @@ class ResumeService:
             text = self._extract_text(file_bytes, file_name)
             # 2. LLM 结构化提取
             structured = await self._llm_extract(text)
+            # 兜底：LLM 可能返回 null 字段，统一转为安全默认值，防止下游 encode/格式化崩溃
+            structured = structured or {}
+            for k in ("name", "phone", "email", "gender", "age", "location", "education", "summary", "salary"):
+                if structured.get(k) is None:
+                    structured[k] = ""
+            for k in ("education_level", "work_years"):
+                if structured.get(k) is None:
+                    structured[k] = 0
+            for k in ("skills", "work_experience", "education_detail"):
+                if structured.get(k) is None:
+                    structured[k] = []
             # 3. 去重
             phone_h = hash_phone(structured.get("phone", ""))
             email_h = hash_email(structured.get("email", ""))
@@ -189,18 +200,21 @@ class ResumeService:
             text: 简历文本
         出参:
             结构化字典，失败返回 {}
+        注意:
+            DeepSeek/OpenAI 兼容接口需显式传 response_format=json_object 才能稳定返回 JSON，
+            否则可能返回 markdown 代码块包裹或全 null 的 JSON。
+            解析时需兼容 ```json ... ``` 包裹与首尾多余文本。
         """
         from app.agent.prompts import RESUME_EXTRACT_PROMPT
         prompt = RESUME_EXTRACT_PROMPT.format(text=str(text)[:4000])
-        result = await self.llm.chat([
-            {"role": "system", "content": "你是简历解析助手，必须返回 JSON"},
-            {"role": "user", "content": prompt},
-        ])
-        try:
-            return json.loads(result)
-        except Exception:
-            logger.error(f"LLM 返回非 JSON: {str(result)[:200]}")
-            return {}
+        result = await self.llm.chat(
+            [
+                {"role": "system", "content": "你是简历解析助手，必须返回 JSON。所有字段必须填充，缺失值用空字符串或 0，禁止返回 null。"},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        return _safe_json_loads(result)
 
     async def get_detail(self, resume_id: str) -> dict:
         """AC4.1-4.4: 获取简历详情
@@ -316,3 +330,31 @@ class ResumeService:
             raise NotFoundError("简历不存在")
         url = self.minio.presigned_url(doc["file_info"]["file_id"])
         return {"preview_url": url, "file_type": doc["file_info"]["file_type"], "expires_in": 3600}
+
+
+def _safe_json_loads(result: str) -> dict:
+    """robust JSON 解析：去除 markdown 代码块包裹后 json.loads，失败返回 {}
+
+    入参:
+        result: LLM 返回的原始文本
+    出参:
+        解析后的字典；失败返回 {}
+    """
+    if not result:
+        return {}
+    text = result.strip()
+    # 去除 ```json ... ``` 或 ``` ... ``` 包裹
+    if text.startswith("```"):
+        # 去掉首行 ```json / ```
+        lines = text.split("\n", 1)
+        if len(lines) > 1:
+            text = lines[1]
+        # 去掉末尾 ```
+        if text.endswith("```"):
+            text = text[: text.rfind("```")]
+        text = text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        logger.error(f"LLM 返回非 JSON: {str(result)[:200]}")
+        return {}
