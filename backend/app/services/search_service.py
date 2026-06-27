@@ -167,8 +167,7 @@ class SearchService:
             cid = doc.get("candidate_id")
             rid = doc.get("resume_id")
             rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
-            score = await self._llm_score(query, doc, rerank_score)
-            reason = await self._llm_reason(query, doc, score)
+            score_data = await self._llm_score_multi(query, doc, rerank_score)
             scored.append({
                 "candidate_id": cid,
                 "resume_id": rid,
@@ -178,8 +177,14 @@ class SearchService:
                 "education_level": doc.get("education_level", 0),
                 "skills": doc.get("skills", []),
                 "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
-                "score": score,
-                "reason": reason,
+                "score": score_data["overall"],
+                "score_detail": {
+                    "skill": score_data["skill"],
+                    "experience": score_data["experience"],
+                    "education": score_data["education"],
+                    "salary": score_data["salary"],
+                },
+                "reason": score_data["reason"],
                 "tags": doc.get("tags", []),
                 "is_favorite": doc.get("is_favorite", False),
                 "summary": doc.get("summary", ""),
@@ -187,26 +192,68 @@ class SearchService:
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored
 
-    async def _llm_score(self, query: str, candidate: dict, rerank_score: float = 0.0) -> float:
-        """LLM 打分（0-100）
+    async def _llm_score_multi(self, query: str, candidate: dict, rerank_score: float = 0.0) -> dict:
+        """LLM 分维度评分（4 维度 + overall + reason）
 
         入参:
             query: 原始查询
             candidate: 候选人文档
-            rerank_score: reranker 得分（LLM 失败时兜底）
+            rerank_score: reranker 得分（LLM 调用失败时兜底）
         出参:
-            0-100 分数
+            {skill, experience, education, salary, overall, reason}
+        异常兜底:
+            - LLM 调用失败（网络/超时）→ 4 维度全部回退 rerank_score*100
+            - LLM 返回但 JSON 解析失败 → 全 0 + reason="评分暂不可用"
         """
         try:
             prompt = SCORE_PROMPT.format(query=query, candidate=str(candidate))
-            resp = await llm_client.chat([{"role": "user", "content": prompt}])
-            return float(resp.strip())
+            resp = await llm_client.chat(
+                [{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
         except Exception as e:
-            logger.warning(f"LLM 评分失败，回退 rerank_score: {e}")
-            return rerank_score * 100
+            logger.warning(f"LLM 评分调用失败，回退 rerank_score: {e}")
+            fallback = rerank_score * 100
+            return {
+                "skill": fallback,
+                "experience": fallback,
+                "education": fallback,
+                "salary": fallback,
+                "overall": fallback,
+                "reason": "基于语义相似度匹配",
+            }
+
+        # LLM 调用成功，解析 JSON
+        try:
+            data = json.loads(resp.strip())
+            result = {
+                "skill": float(data.get("skill", 0)),
+                "experience": float(data.get("experience", 0)),
+                "education": float(data.get("education", 0)),
+                "salary": float(data.get("salary", 0)),
+                "overall": float(data.get("overall", 0)),
+                "reason": data.get("reason", "评分暂不可用"),
+            }
+            # overall 兜底加权计算
+            if result["overall"] == 0:
+                result["overall"] = (
+                    0.3 * result["skill"] + 0.3 * result["experience"]
+                    + 0.2 * result["education"] + 0.2 * result["salary"]
+                )
+            return result
+        except Exception as e:
+            logger.warning(f"LLM 评分 JSON 解析失败，全 0 兜底: {e}")
+            return {
+                "skill": 0,
+                "experience": 0,
+                "education": 0,
+                "salary": 0,
+                "overall": 0,
+                "reason": "评分暂不可用",
+            }
 
     async def _llm_reason(self, query: str, candidate: dict, score: float) -> str:
-        """LLM 生成推荐理由
+        """LLM 生成推荐理由（保留向后兼容，新流程已由 _llm_score_multi 提供 reason）
 
         入参:
             query: 原始查询
