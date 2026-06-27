@@ -271,13 +271,15 @@ class AgentService:
                 logger.error(f"流式生成失败: {e}")
                 full_response = "抱歉，生成回复时出错。"
 
+            # 4. 保存消息（首条消息时返回新标题）
+            save_result = await self._save_message(session_id, message_id, query, full_response, state)
+            new_title = save_result.get("title") if save_result else None
+
             yield _sse_event("done", {
                 "message_id": message_id,
                 "response": full_response,
+                "title": new_title,  # 仅首条消息时非 None
             })
-
-            # 4. 保存消息
-            await self._save_message(session_id, message_id, query, full_response, state)
 
         except Exception as e:
             logger.error(f"对话流式失败: {e}")
@@ -290,8 +292,8 @@ class AgentService:
         query: str,
         response: str,
         state: dict,
-    ) -> None:
-        """保存用户与助手消息
+    ) -> dict:
+        """保存用户与助手消息，首条消息时自动更新会话标题
 
         入参:
             session_id: 会话 ID
@@ -299,11 +301,17 @@ class AgentService:
             query: 用户查询
             response: 助手回复
             state: 当前 AgentState
+        出参:
+            {"title": new_title or None} 首条消息返回新标题，非首条返回 None
         """
         now = datetime.now(timezone.utc).isoformat()
-        await self.sessions_coll.update_one(
-            {"session_id": session_id},
-            update={
+        new_title = None
+        try:
+            # 检查是否首条消息
+            session = await self.sessions_coll.find_one(
+                {"session_id": session_id}, {"messages": 1}
+            )
+            update = {
                 "$push": {
                     "messages": {
                         "$each": [
@@ -327,8 +335,47 @@ class AgentService:
                     }
                 },
                 "$set": {"updated_at": now},
-            },
-        )
+            }
+            # 首条消息自动更新标题
+            if session and not session.get("messages"):
+                new_title = query[:20].strip() or "新会话"
+                update["$set"]["title"] = new_title
+            await self.sessions_coll.update_one({"session_id": session_id}, update=update)
+        except Exception as e:
+            logger.error(f"保存消息失败: {e}")
+            # 标题更新失败不阻塞消息保存，至少保存消息
+            try:
+                await self.sessions_coll.update_one(
+                    {"session_id": session_id},
+                    update={
+                        "$push": {
+                            "messages": {
+                                "$each": [
+                                    {
+                                        "message_id": f"{message_id}_u",
+                                        "role": "user",
+                                        "content": query,
+                                        "created_at": now,
+                                    },
+                                    {
+                                        "message_id": message_id,
+                                        "role": "assistant",
+                                        "content": response,
+                                        "intent_type": state.get("intent_type"),
+                                        "strategy": state.get("strategy"),
+                                        "candidates": state.get("candidates"),
+                                        "created_at": now,
+                                    },
+                                ],
+                                "$slice": -20,
+                            }
+                        },
+                        "$set": {"updated_at": now},
+                    },
+                )
+            except Exception as inner_e:
+                logger.error(f"消息保存兜底也失败: {inner_e}")
+        return {"title": new_title}
 
 
 agent_service = AgentService()

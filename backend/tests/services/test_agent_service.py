@@ -103,7 +103,7 @@ async def test_send_message_stream_qa_branch_skips_retrieval(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock()):
+         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(*args, **kwargs):
             for tok in ["这是", "通用", "回答"]:
@@ -142,7 +142,7 @@ async def test_retrieve_empty_yields_candidates_event(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "search"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock()):
+         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(*args, **kwargs):
             yield "未找到匹配候选人"
@@ -164,3 +164,120 @@ async def test_retrieve_empty_yields_candidates_event(svc):
     data_line = [l for l in candidates_events[0].split("\n") if l.startswith("data: ")][0]
     payload = _json.loads(data_line[6:])
     assert payload == [], f"candidates 事件 data 应为空数组，实际: {payload}"
+
+
+@pytest.mark.asyncio
+async def test_save_message_updates_title_on_first(svc):
+    """首条消息应更新标题为 query 前 20 字"""
+    # 模拟空 messages（首条）
+    svc.sessions_coll.find_one = AsyncMock(return_value={"session_id": "s1", "messages": []})
+    svc.sessions_coll.update_one = AsyncMock()
+
+    await svc._save_message(
+        session_id="s1",
+        message_id="m1",
+        query="推荐前端工程师熟悉Vue3和TypeScript",
+        response="好的",
+        state={"intent_type": "search"},
+    )
+
+    # 验证 update_one 被调用，且 $set 包含 title
+    call_args = svc.sessions_coll.update_one.call_args
+    update_doc = call_args.kwargs.get("update") or call_args.args[1]
+    assert "$set" in update_doc
+    assert "title" in update_doc["$set"]
+    expected_title = "推荐前端工程师熟悉Vue3和TypeScript"[:20]
+    assert update_doc["$set"]["title"] == expected_title
+
+
+@pytest.mark.asyncio
+async def test_save_message_no_title_update_on_subsequent(svc):
+    """非首条消息不应更新标题"""
+    # 模拟已有消息（非首条）
+    svc.sessions_coll.find_one = AsyncMock(return_value={
+        "session_id": "s1",
+        "messages": [{"role": "user", "content": "之前的问题"}]
+    })
+    svc.sessions_coll.update_one = AsyncMock()
+
+    await svc._save_message(
+        session_id="s1",
+        message_id="m2",
+        query="第二个问题",
+        response="回答",
+        state={"intent_type": "search"},
+    )
+
+    call_args = svc.sessions_coll.update_one.call_args
+    update_doc = call_args.kwargs.get("update") or call_args.args[1]
+    assert "$set" in update_doc
+    assert "title" not in update_doc["$set"], "非首条消息不应更新标题"
+
+
+@pytest.mark.asyncio
+async def test_done_event_carries_title_on_first_message(svc):
+    """首条消息的 done 事件应携带 title"""
+    svc.sessions_coll.find_one = AsyncMock(return_value={
+        "session_id": "s1", "messages": [], "user_id": "u1"
+    })
+
+    with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
+         patch("app.services.agent_service.llm_client") as mock_llm:
+
+        async def fake_stream(*args, **kwargs):
+            yield "回答"
+
+        mock_llm.chat_stream = fake_stream
+        # _save_message 会真实调用，需 mock update_one
+        svc.sessions_coll.update_one = AsyncMock()
+
+        events = []
+        async for sse_str in svc.send_message_stream(
+            session_id="s1", user_id="u1", query="测试问题前20字"
+        ):
+            events.append(sse_str)
+            if len(events) > 50:
+                break
+
+    # 找 done 事件
+    done_events = [e for e in events if e.startswith("event: done")]
+    assert len(done_events) > 0, "应有 done 事件"
+    # 解析 data 验证含 title
+    import json as _json
+    data_line = [l for l in done_events[0].split("\n") if l.startswith("data: ")][0]
+    payload = _json.loads(data_line[6:])
+    assert payload.get("title") == "测试问题前20字", f"done 事件应携带 title，实际: {payload}"
+
+
+@pytest.mark.asyncio
+async def test_done_event_no_title_on_subsequent_message(svc):
+    """非首条消息的 done 事件 title 应为 None"""
+    svc.sessions_coll.find_one = AsyncMock(return_value={
+        "session_id": "s1",
+        "messages": [{"role": "user", "content": "之前的问题"}],
+        "user_id": "u1"
+    })
+
+    with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
+         patch("app.services.agent_service.llm_client") as mock_llm:
+
+        async def fake_stream(*args, **kwargs):
+            yield "回答"
+
+        mock_llm.chat_stream = fake_stream
+        svc.sessions_coll.update_one = AsyncMock()
+
+        events = []
+        async for sse_str in svc.send_message_stream(
+            session_id="s1", user_id="u1", query="第二个问题"
+        ):
+            events.append(sse_str)
+            if len(events) > 50:
+                break
+
+    done_events = [e for e in events if e.startswith("event: done")]
+    assert len(done_events) > 0
+    import json as _json
+    data_line = [l for l in done_events[0].split("\n") if l.startswith("data: ")][0]
+    payload = _json.loads(data_line[6:])
+    assert payload.get("title") is None, f"非首条消息 done 事件 title 应为 None，实际: {payload}"
