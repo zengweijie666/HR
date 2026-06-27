@@ -70,6 +70,66 @@ async def test_get_detail_masks_phone(svc):
 
 
 @pytest.mark.asyncio
+async def test_get_detail_returns_raw_phone_for_admin(svc):
+    """admin 获取详情看到原始 phone/email"""
+    svc.resumes_coll.find_one = AsyncMock(return_value={
+        "resume_id": "r1", "candidate_id": "c1",
+        "basic_info": {
+            "name": "张三", "phone": "13800138000", "email": "zhangsan@test.com",
+            "phone_masked": "138****8000", "email_masked": "z***@test.com",
+        },
+        "education": "本科", "education_level": 1, "work_years": 5, "skills": [],
+        "expected_salary": {"min": 20, "max": 30}, "tags": [], "is_favorite": False,
+        "parse_status": "completed", "created_at": "x", "interview_notes": []
+    })
+    detail = await svc.get_detail("r1", current_user={"role": "admin"})
+    assert detail["basic_info"]["phone"] == "13800138000"
+    assert detail["basic_info"]["email"] == "zhangsan@test.com"
+    assert "phone_masked" not in detail["basic_info"]
+    assert "email_masked" not in detail["basic_info"]
+
+
+@pytest.mark.asyncio
+async def test_get_detail_returns_masked_for_normal_user(svc):
+    """普通用户获取详情看到 masked"""
+    svc.resumes_coll.find_one = AsyncMock(return_value={
+        "resume_id": "r1", "candidate_id": "c1",
+        "basic_info": {
+            "name": "张三", "phone": "13800138000", "email": "zhangsan@test.com",
+            "phone_masked": "138****8000", "email_masked": "z***@test.com",
+        },
+        "education": "本科", "education_level": 1, "work_years": 5, "skills": [],
+        "expected_salary": {"min": 20, "max": 30}, "tags": [], "is_favorite": False,
+        "parse_status": "completed", "created_at": "x", "interview_notes": []
+    })
+    detail = await svc.get_detail("r1", current_user={"role": "user"})
+    assert detail["basic_info"]["phone_masked"] == "138****8000"
+    assert detail["basic_info"]["email_masked"] == "z***@test.com"
+    assert "phone" not in detail["basic_info"]
+    assert "email" not in detail["basic_info"]
+
+
+@pytest.mark.asyncio
+async def test_get_detail_admin_falls_back_to_masked_for_old_doc(svc):
+    """旧文档无 phone/email 字段时 admin 兜底用 masked"""
+    svc.resumes_coll.find_one = AsyncMock(return_value={
+        "resume_id": "r1", "candidate_id": "c1",
+        "basic_info": {
+            "name": "张三",
+            "phone_masked": "138****8000", "email_masked": "z***@test.com",
+            # 旧文档没有 phone/email 字段
+        },
+        "education": "本科", "education_level": 1, "work_years": 5, "skills": [],
+        "expected_salary": {"min": 20, "max": 30}, "tags": [], "is_favorite": False,
+        "parse_status": "completed", "created_at": "x", "interview_notes": []
+    })
+    detail = await svc.get_detail("r1", current_user={"role": "admin"})
+    # 兜底：admin 看到 masked 值
+    assert detail["basic_info"]["phone"] == "138****8000"
+    assert detail["basic_info"]["email"] == "z***@test.com"
+
+
+@pytest.mark.asyncio
 async def test_delete_cleans_all(svc):
     """AC6.1-6.4: 删除清理三处"""
     svc.resumes_coll.find_one = AsyncMock(return_value={"file_info": {"file_id": "minio_xxx"}})

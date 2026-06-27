@@ -369,11 +369,12 @@ class ResumeService:
         )
         return _safe_json_loads(result)
 
-    async def get_detail(self, resume_id: str) -> dict:
-        """AC4.1-4.4: 获取简历详情
+    async def get_detail(self, resume_id: str, current_user: dict = None) -> dict:
+        """AC4.1-4.4: 获取简历详情（根据 current_user.role 返回原始/脱敏手机邮箱）
 
         入参:
             resume_id: 简历 ID
+            current_user: 当前用户（含 role 字段），决定返回原始/脱敏手机邮箱
         出参:
             简历详情字典
         异常:
@@ -382,9 +383,22 @@ class ResumeService:
         doc = await self.resumes_coll.find_one({"resume_id": resume_id}, {"_id": 0})
         if not doc:
             raise NotFoundError("简历不存在")
+        # 根据 RBAC 决定 basic_info 中的手机邮箱字段
+        basic = dict(doc.get("basic_info") or {})
+        is_admin = bool(current_user and current_user.get("role") == "admin")
+        if is_admin:
+            # admin 看原始值，旧文档无 phone/email 字段时兜底用 masked
+            basic["phone"] = basic.get("phone") or basic.get("phone_masked", "")
+            basic["email"] = basic.get("email") or basic.get("email_masked", "")
+            basic.pop("phone_masked", None)
+            basic.pop("email_masked", None)
+        else:
+            # 普通用户/未登录移除原始字段，保留 masked
+            basic.pop("phone", None)
+            basic.pop("email", None)
+        doc["basic_info"] = basic
         # 扁平化 basic_info 顶层字段（前端期望 name/gender/age/location 在顶层）
-        basic = doc.get("basic_info") or {}
-        for key in ("name", "gender", "age", "location", "phone_masked", "email_masked"):
+        for key in ("name", "gender", "age", "location", "phone_masked", "email_masked", "phone", "email"):
             if key not in doc and key in basic:
                 doc[key] = basic[key]
         # name 兜底（避免 basic_info 缺失时前端拿到 None）
