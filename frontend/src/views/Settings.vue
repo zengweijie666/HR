@@ -22,8 +22,10 @@
       <LoadingOverlay :visible="loading" />
 
       <div class="settings-card__head">
-        <h3 class="settings-card__title decor-line">邮件服务器</h3>
-        <p class="settings-card__desc">配置 SMTP 服务器用于候选人推荐邮件发送</p>
+        <h3 class="settings-card__title decor-line">邮件服务器（发件人配置）</h3>
+        <p class="settings-card__desc">
+          配置 SMTP 服务器用于系统发送邮件。<strong>"账号"字段即发件人邮箱地址</strong>，所有邮件都将以此账号发送。
+        </p>
       </div>
 
       <el-form
@@ -33,15 +35,16 @@
         label-position="right"
       >
         <el-form-item label="SMTP 主机">
-          <el-input v-model="form.smtp_host" placeholder="如 smtp.example.com" />
+          <el-input v-model="form.smtp_host" placeholder="如 smtp.qq.com / smtp.163.com / smtp.exmail.qq.com" />
         </el-form-item>
 
         <el-form-item label="端口">
           <el-input-number v-model="form.smtp_port" :min="1" :max="65535" controls-position="right" />
+          <span class="settings-card__hint">SSL 通常 465，STARTTLS 通常 587</span>
         </el-form-item>
 
-        <el-form-item label="账号">
-          <el-input v-model="form.smtp_user" placeholder="发件邮箱账号" />
+        <el-form-item label="账号（发件邮箱）">
+          <el-input v-model="form.smtp_user" placeholder="如 hr@company.com，即发件人邮箱地址" />
         </el-form-item>
 
         <el-form-item label="密码">
@@ -51,6 +54,14 @@
             show-password
             placeholder="留空表示不修改密码"
           />
+          <span class="settings-card__hint">部分邮箱（QQ/163/Gmail）需使用授权码而非登录密码</span>
+        </el-form-item>
+
+        <el-form-item label="加密方式">
+          <el-radio-group v-model="form.use_ssl">
+            <el-radio :value="true">SSL/TLS（端口 465）</el-radio>
+            <el-radio :value="false">STARTTLS（端口 587）</el-radio>
+          </el-radio-group>
         </el-form-item>
 
         <el-form-item>
@@ -109,6 +120,7 @@ const form = reactive<EmailConfig>({
   smtp_port: 465,
   smtp_user: '',
   smtp_password: '',
+  use_ssl: true,
 })
 
 // 测试邮件表单
@@ -132,6 +144,12 @@ async function loadConfig(): Promise<void> {
     form.smtp_port = data.smtp_port || 465
     form.smtp_user = data.smtp_user || ''
     form.smtp_password = ''
+    // 后端旧数据可能无 use_ssl 字段，按端口推断默认值
+    if (typeof data.use_ssl === 'boolean') {
+      form.use_ssl = data.use_ssl
+    } else {
+      form.use_ssl = form.smtp_port === 465
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : '加载配置失败'
     ElMessage.error(msg)
@@ -150,6 +168,7 @@ async function handleSave(): Promise<void> {
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_user: form.smtp_user,
+      use_ssl: form.use_ssl,
     }
     if (form.smtp_password) {
       payload.smtp_password = form.smtp_password
@@ -173,7 +192,11 @@ async function handleSendTest(): Promise<void> {
   try { await testFormRef.value.validate() } catch { return }
   testing.value = true
   try {
-    await sendTestMail({ to_email: testForm.to_email.trim() })
+    const result = await sendTestMail({ to_email: testForm.to_email.trim() })
+    if (result.status === 'error') {
+      ElMessage.error(result.message || '发送失败，请检查 SMTP 配置')
+      return
+    }
     ElMessage.success('测试邮件发送成功，请查收')
   } catch (err) {
     const msg = err instanceof Error ? err.message : '发送失败'
@@ -250,6 +273,14 @@ onMounted(() => {
     :deep(.el-input__wrapper) {
       border-radius: var(--radius-md);
     }
+  }
+
+  &__hint {
+    display: inline-block;
+    margin-left: var(--space-3);
+    font-size: var(--text-xs);
+    color: var(--color-ink-mute);
+    line-height: 1.5;
   }
 }
 </style>

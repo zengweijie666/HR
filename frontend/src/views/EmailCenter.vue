@@ -408,7 +408,11 @@ async function handleSend(): Promise<void> {
         ? { template_id: sendForm.template_id, variables: sendForm.variables }
         : { custom_subject: sendForm.custom_subject.trim(), custom_body: sendForm.custom_body.trim() }),
     }
-    await sendMail(payload)
+    const result = await sendMail(payload)
+    if (result.status === 'error') {
+      ElMessage.error(result.message || '发送失败，请检查 SMTP 配置')
+      return
+    }
     ElMessage.success('邮件发送成功')
     resetSendForm()
   } catch (err) {

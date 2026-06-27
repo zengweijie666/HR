@@ -269,7 +269,11 @@ async function handleSubmit(): Promise<void> {
         ? { template_id: form.template_id, variables: form.variables }
         : { custom_subject: form.custom_subject.trim(), custom_body: form.custom_body.trim() }),
     }
-    await sendMail(payload)
+    const result = await sendMail(payload)
+    if (result.status === 'error') {
+      ElMessage.error(result.message || '发送失败，请检查 SMTP 配置')
+      return
+    }
     ElMessage.success('邮件发送成功')
     visible.value = false
   } catch (err) {

@@ -101,11 +101,12 @@ class EmailService:
 
         try:
             password = decrypt(config["smtp_password_encrypted"])
+            use_ssl = config.get("use_ssl", config.get("smtp_port") == 465)
             await aiosmtplib.send(
                 msg,
                 hostname=config["smtp_host"], port=config["smtp_port"],
                 username=config["smtp_user"], password=password,
-                use_tls=config.get("smtp_port") == 465,
+                use_tls=use_ssl,
             )
             logger.info(f"邮件已发送到 {to_email}, 候选人数={len(candidates)}")
             return {"status": "success", "sent_count": len(candidates)}
@@ -167,25 +168,30 @@ class EmailService:
         """获取 SMTP 配置（解密密码）
 
         出参:
-            {"smtp_host", "smtp_port", "smtp_user", "smtp_password"} 或 None
+            {"smtp_host", "smtp_port", "smtp_user", "smtp_password", "use_ssl"} 或 None
         """
         if self.config_coll is None:
             return None
         config = await self.config_coll.find_one({"_id": "default"})
         if not config:
             return None
+        # 旧数据无 use_ssl 字段时按端口推断
+        use_ssl = config.get("use_ssl")
+        if use_ssl is None:
+            use_ssl = config["smtp_port"] == 465
         return {
             "smtp_host": config["smtp_host"],
             "smtp_port": config["smtp_port"],
             "smtp_user": config["smtp_user"],
             "smtp_password": decrypt(config["smtp_password_encrypted"]),
+            "use_ssl": use_ssl,
         }
 
     async def _smtp_send(self, config: dict, to_email: str, subject: str, body: str) -> dict:
         """实际 SMTP 发送
 
         入参:
-            config: SMTP 配置（含解密后的密码）
+            config: SMTP 配置（含解密后的密码与 use_ssl 标志）
             to_email: 收件人
             subject: 主题
             body: HTML 正文
@@ -197,12 +203,13 @@ class EmailService:
         msg["To"] = to_email
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "html"))
+        use_ssl = config.get("use_ssl", config["smtp_port"] == 465)
         try:
             await aiosmtplib.send(
                 msg,
                 hostname=config["smtp_host"], port=config["smtp_port"],
                 username=config["smtp_user"], password=config["smtp_password"],
-                use_tls=config["smtp_port"] == 465,
+                use_tls=use_ssl,
             )
             logger.info(f"邮件已发送到 {to_email}, subject={subject}")
             return {"status": "success", "message": "发送成功"}
@@ -214,37 +221,47 @@ class EmailService:
         """AC18.1: 获取配置（脱敏）
 
         出参:
-            {"smtp_host", "smtp_port", "smtp_user", "smtp_password": ""}
+            {"smtp_host", "smtp_port", "smtp_user", "smtp_password": "", "use_ssl"}
         """
         if self.config_coll is None:
             return {}
         config = await self.config_coll.find_one({"_id": "default"})
         if not config:
             return {}
+        # 旧数据无 use_ssl 字段时按端口推断
+        use_ssl = config.get("use_ssl")
+        if use_ssl is None:
+            use_ssl = config.get("smtp_port", 465) == 465
         return {
             "smtp_host": config.get("smtp_host", ""),
             "smtp_port": config.get("smtp_port", 465),
             "smtp_user": config.get("smtp_user", ""),
             "smtp_password": "",  # 不返回密码
+            "use_ssl": use_ssl,
         }
 
     async def update_config(self, config: dict) -> None:
         """AC18.2: 更新配置（加密存储）
 
         入参:
-            config: {smtp_host, smtp_port, smtp_user, smtp_password}
+            config: {smtp_host, smtp_port, smtp_user, smtp_password, use_ssl}
+            注：smtp_password 为空字符串或缺失时，保留原密码不覆盖
         """
         if self.config_coll is None:
             return
-        encrypted_pwd = encrypt(config.get("smtp_password", ""))
+        update_fields: dict = {
+            "smtp_host": config.get("smtp_host", ""),
+            "smtp_port": config.get("smtp_port", 465),
+            "smtp_user": config.get("smtp_user", ""),
+            "use_ssl": config.get("use_ssl", True),
+        }
+        # 仅在提供了非空密码时才更新密码（支持"留空不修改"语义）
+        new_pwd = config.get("smtp_password")
+        if new_pwd:
+            update_fields["smtp_password_encrypted"] = encrypt(new_pwd)
         await self.config_coll.update_one(
             {"_id": "default"},
-            update={"$set": {
-                "smtp_host": config["smtp_host"],
-                "smtp_port": config["smtp_port"],
-                "smtp_user": config["smtp_user"],
-                "smtp_password_encrypted": encrypted_pwd,
-            }},
+            update={"$set": update_fields},
             upsert=True,
         )
         logger.info("SMTP 配置已更新")

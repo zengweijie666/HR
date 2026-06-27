@@ -62,8 +62,9 @@ export interface SendMailPayload {
 
 /** 发送邮件响应 */
 export interface SendMailResult {
-  status: string
-  message_id?: string
+  status: 'success' | 'error'
+  message?: string
+  sent_count?: number
 }
 
 /** 发送测试邮件请求 */
