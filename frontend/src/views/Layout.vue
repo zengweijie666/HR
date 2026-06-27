@@ -47,6 +47,10 @@
           <el-icon><Setting /></el-icon>
           <template #title>设置</template>
         </el-menu-item>
+        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/users">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>用户管理</template>
+        </el-menu-item>
       </el-menu>
     </aside>
 
@@ -71,6 +75,7 @@
             <div class="header__user">
               <span class="header__avatar">{{ avatarLetter }}</span>
               <span class="header__username">{{ displayName }}</span>
+              <el-tag v-if="authStore.user?.role === 'admin'" type="danger" size="small" effect="plain">管理员</el-tag>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
@@ -108,6 +113,7 @@ import {
   Fold,
   Expand,
   SwitchButton,
+  UserFilled,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'

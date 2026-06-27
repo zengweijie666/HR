@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Settings.vue'),
         meta: { title: '设置' },
       },
+      {
+        path: 'users',
+        name: 'UserList',
+        component: () => import('@/views/UserList.vue'),
+        meta: { title: '用户管理', requireAdmin: true },
+      },
     ],
   },
   {
@@ -93,6 +99,10 @@ router.beforeEach(async (to) => {
       auth.logout()
       return { path: '/login' }
     }
+  }
+  // admin 路由权限校验
+  if (to.meta.requireAdmin === true && auth.user?.role !== 'admin') {
+    return { path: '/workbench' }
   }
   return true
 })
