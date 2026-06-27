@@ -5,6 +5,7 @@
  * 功能描述: 用户管理类型定义
  */
 import type { UserRole, UserStatus } from './auth'
+export type { UserRole, UserStatus }
 
 export interface UserListItem {
   user_id: string
