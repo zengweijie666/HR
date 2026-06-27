@@ -34,6 +34,9 @@ class MongoDB:
         await cls.db.interview_notes.create_index("note_id", unique=True)
         await cls.db.interview_notes.create_index("resume_id")
         await cls.db.email_config.create_index("config_id", unique=True)
+        # users 表索引
+        await cls.db.users.create_index("username", unique=True)
+        await cls.db.users.create_index([("role", 1), ("status", 1)])
         logger.info("MongoDB 已连接", extra={})
 
     @classmethod
