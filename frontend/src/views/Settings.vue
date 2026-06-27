@@ -5,6 +5,7 @@
   功能描述: 设置页
     - 顶部页头：eyebrow + 大标题
     - 邮件 SMTP 配置卡片：主机/端口/账号/密码 + 保存
+    - 测试邮件卡片：收件人邮箱 + 发送测试邮件按钮（验证 SMTP 配置是否正确）
     - onMounted：调 getConfig 加载
     - 保存：调 updateConfig API + ElMessage.success
 -->
@@ -59,22 +60,49 @@
         </el-form-item>
       </el-form>
     </section>
+
+    <!-- 发送测试邮件卡片 -->
+    <section class="settings-card">
+      <div class="settings-card__head">
+        <h3 class="settings-card__title decor-line">发送测试邮件</h3>
+        <p class="settings-card__desc">向指定邮箱发送一封测试邮件，用于验证 SMTP 配置是否正确</p>
+      </div>
+
+      <el-form
+        :model="testForm"
+        :rules="testRules"
+        ref="testFormRef"
+        label-width="120px"
+        class="settings-card__form"
+        label-position="right"
+      >
+        <el-form-item label="收件人邮箱" prop="to_email">
+          <el-input v-model="testForm.to_email" placeholder="example@domain.com" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="testing" @click="handleSendTest">
+            发送测试邮件
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
  * Settings 设置页
- * 加载并保存邮件 SMTP 配置
+ * 加载并保存邮件 SMTP 配置，发送测试邮件验证配置
  */
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import LoadingOverlay from '@/components/common/LoadingOverlay.vue'
-import { getConfig, updateConfig } from '@/api/email'
+import { getConfig, updateConfig, sendTestMail } from '@/api/email'
 import type { EmailConfig } from '@/types/email'
 
 const loading = ref<boolean>(false)
 const saving = ref<boolean>(false)
+const testing = ref<boolean>(false)
 
 const form = reactive<EmailConfig>({
   smtp_host: '',
@@ -82,6 +110,16 @@ const form = reactive<EmailConfig>({
   smtp_user: '',
   smtp_password: '',
 })
+
+// 测试邮件表单
+const testFormRef = ref<FormInstance>()
+const testForm = reactive({ to_email: '' })
+const testRules: FormRules = {
+  to_email: [
+    { required: true, message: '请输入收件人邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+}
 
 /**
  * 加载邮件配置
@@ -124,6 +162,24 @@ async function handleSave(): Promise<void> {
     ElMessage.error(msg)
   } finally {
     saving.value = false
+  }
+}
+
+/**
+ * 发送测试邮件
+ */
+async function handleSendTest(): Promise<void> {
+  if (!testFormRef.value) return
+  try { await testFormRef.value.validate() } catch { return }
+  testing.value = true
+  try {
+    await sendTestMail({ to_email: testForm.to_email.trim() })
+    ElMessage.success('测试邮件发送成功，请查收')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '发送失败'
+    ElMessage.error(msg)
+  } finally {
+    testing.value = false
   }
 }
 
