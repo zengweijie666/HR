@@ -2,17 +2,16 @@
   文件名: components/resume/UploadDialog.vue
   创建时间: 2026-06-26
   作者: TalentSense Team
-  功能描述: 简历上传对话框
-    - el-dialog + eyebrow 装饰小标签 "RESUME UPLOAD"
-    - 拖拽上传区（自定义琥珀色虚线边框）
+  功能描述: 简历上传对话框（支持批量）
+    - el-dialog + 拖拽上传区（支持多文件）
     - 覆盖重复简历 checkbox
-    - 取消 + 上传（带 loading）按钮
+    - 文件列表展示 + 逐个上传 + 进度反馈
 -->
 <template>
   <el-dialog
     :model-value="visible"
     title="上传简历"
-    width="520px"
+    width="560px"
     :close-on-click-modal="false"
     append-to-body
     class="upload-dialog"
@@ -25,26 +24,35 @@
       ref="uploadRef"
       class="upload-dialog__uploader"
       drag
+      multiple
       :auto-upload="false"
-      :limit="1"
       :on-change="handleFileChange"
-      :on-exceed="handleExceed"
+      :on-remove="handleFileRemove"
       :file-list="fileList"
       accept=".pdf,.docx,.png,.jpg,.jpeg"
     >
       <el-icon class="upload-dialog__icon"><UploadFilled /></el-icon>
       <div class="upload-dialog__hint-title">将文件拖到此处，或点击上传</div>
-      <div class="upload-dialog__hint-sub">支持 PDF / DOCX / PNG / JPG</div>
+      <div class="upload-dialog__hint-sub">支持 PDF / DOCX / PNG / JPG，可批量选择多个文件</div>
     </el-upload>
+
+    <div v-if="fileList.length > 0" class="upload-dialog__count">
+      已选择 {{ fileList.length }} 个文件
+    </div>
 
     <div class="upload-dialog__options">
       <el-checkbox v-model="overwrite">覆盖重复简历</el-checkbox>
     </div>
 
+    <!-- 上传进度 -->
+    <div v-if="uploading" class="upload-dialog__progress">
+      <el-progress :percentage="uploadProgress" :format="() => `${uploadedCount}/${fileList.length}`" />
+    </div>
+
     <template #footer>
       <el-button text @click="handleCancel">取消</el-button>
-      <el-button type="primary" :loading="uploading" :disabled="!selectedFile" @click="handleUpload">
-        上传
+      <el-button type="primary" :loading="uploading" :disabled="!fileList.length" @click="handleUpload">
+        上传（{{ fileList.length }} ）
       </el-button>
     </template>
   </el-dialog>
@@ -52,10 +60,10 @@
 
 <script setup lang="ts">
 /**
- * UploadDialog 简历上传对话框
- * 选择文件后调用 uploadResume 上传，成功后 emit uploaded / close
+ * UploadDialog 简历上传对话框（批量）
+ * 选择多个文件后逐个调用 uploadResume 上传，全部完成后 emit uploaded
  */
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
@@ -72,25 +80,30 @@ const props = defineProps<UploadDialogProps>()
 const emit = defineEmits<{
   /** 关闭对话框 */
   (e: 'close'): void
-  /** 上传成功 */
-  (e: 'uploaded', data: UploadResponse): void
+  /** 上传成功（批量） */
+  (e: 'uploaded', data: UploadResponse[]): void
 }>()
 
 const uploadRef = ref<UploadInstance>()
 const fileList = ref<UploadFiles>([])
-const selectedFile = ref<File | null>(null)
 const overwrite = ref<boolean>(false)
 const uploading = ref<boolean>(false)
+const uploadedCount = ref<number>(0)
+
+const uploadProgress = computed(() => {
+  if (!fileList.value.length) return 0
+  return Math.round((uploadedCount.value / fileList.value.length) * 100)
+})
 
 /** 对话框关闭时重置内部状态 */
 watch(
   () => props.visible,
   (val) => {
     if (!val) {
-      selectedFile.value = null
       fileList.value = []
       overwrite.value = false
       uploading.value = false
+      uploadedCount.value = 0
     }
   },
 )
@@ -98,35 +111,50 @@ watch(
 /** 处理文件选择变化 */
 function handleFileChange(file: UploadFile): void {
   if (file && file.raw) {
-    selectedFile.value = file.raw
-    fileList.value = [file]
+    const exists = fileList.value.some(f => f.uid === file.uid)
+    if (!exists) {
+      fileList.value.push(file)
+    }
   }
 }
 
-/** 超出文件数量限制提示 */
-function handleExceed(): void {
-  ElMessage.warning('每次只能上传一个文件，请先移除已选文件')
+/** 处理文件移除 */
+function handleFileRemove(file: UploadFile): void {
+  fileList.value = fileList.value.filter(f => f.uid !== file.uid)
 }
 
-/** 处理上传 */
+/** 批量上传：逐个上传 */
 async function handleUpload(): Promise<void> {
-  if (!selectedFile.value) {
+  if (!fileList.value.length) {
     ElMessage.warning('请先选择简历文件')
     return
   }
   uploading.value = true
-  try {
-    const data = await uploadResume(selectedFile.value, overwrite.value)
-    // 后端通过 BackgroundTasks 异步解析，立即返回 parse_status="parsing"
-    // 列表页会自动轮询刷新解析状态，无需手动刷新
-    ElMessage.success('上传成功，正在后台解析，列表将自动刷新')
-    emit('uploaded', data)
+  uploadedCount.value = 0
+  const results: UploadResponse[] = []
+  const errors: string[] = []
+
+  for (const file of fileList.value) {
+    if (!file.raw) continue
+    try {
+      const data = await uploadResume(file.raw, overwrite.value)
+      results.push(data)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : `${file.name} 上传失败`
+      errors.push(msg)
+    }
+    uploadedCount.value++
+  }
+
+  uploading.value = false
+
+  if (results.length > 0) {
+    ElMessage.success(`成功上传 ${results.length} 份简历，正在后台解析，列表将自动刷新`)
+    emit('uploaded', results)
     emit('close')
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : '上传失败'
-    ElMessage.error(msg)
-  } finally {
-    uploading.value = false
+  }
+  if (errors.length > 0) {
+    ElMessage.warning(`${errors.length} 份上传失败：${errors[0]}`)
   }
 }
 
@@ -190,8 +218,19 @@ function handleVisibleChange(val: boolean): void {
     letter-spacing: 0.02em;
   }
 
+  &__count {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--color-accent-deep);
+    font-weight: 500;
+  }
+
   &__options {
     margin-top: var(--space-4);
+  }
+
+  &__progress {
+    margin-top: var(--space-3);
   }
 }
 </style>

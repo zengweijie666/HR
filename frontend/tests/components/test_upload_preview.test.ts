@@ -68,3 +68,21 @@ describe('components/resume/ResumePreview', () => {
     expect(wrapper.find('.resume-preview__unsupported').exists()).toBe(true)
   })
 })
+
+describe('UploadDialog 批量上传', () => {
+  it('提示文本应包含批量上传说明', async () => {
+    mount(UploadDialog, { props: { visible: true } })
+    await flushPromises()
+    const bodyText = document.body.textContent || ''
+    expect(bodyText).toContain('批量')
+    expect(bodyText).toContain('PDF')
+  })
+
+  it('el-upload 不应有 limit=1 限制', async () => {
+    mount(UploadDialog, { props: { visible: true } })
+    await flushPromises()
+    const bodyHtml = document.body.innerHTML || ''
+    // limit="1" 限制单文件，批量上传时不应存在
+    expect(bodyHtml).not.toContain('limit="1"')
+  })
+})
