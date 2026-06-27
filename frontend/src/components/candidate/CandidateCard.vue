@@ -33,6 +33,22 @@
       </el-icon>
     </div>
 
+    <!-- 4 维度评分详情（skill/experience/education/salary） -->
+    <div v-if="candidate.score_detail" class="candidate-card__dims">
+      <div v-for="dim in dims" :key="dim.key" class="candidate-card__dim">
+        <div class="candidate-card__dim-head">
+          <span class="candidate-card__dim-label">{{ dim.label }}</span>
+          <span class="candidate-card__dim-value">{{ dim.value }}</span>
+        </div>
+        <div class="candidate-card__dim-bar">
+          <div
+            class="candidate-card__dim-fill"
+            :style="{ width: dim.value + '%', background: dim.color }"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- 中部 meta -->
     <div class="candidate-card__meta">
       <template v-if="candidate.work_years != null">
@@ -94,6 +110,18 @@ const level = computed(() => scoreLevel(props.candidate.score ?? 0))
 const starCount = computed(() => {
   const raw = Math.ceil((props.candidate.score ?? 0) / 20)
   return Math.min(5, Math.max(0, raw))
+})
+
+/** 4 维度评分条目（skill/experience/education/salary） */
+const dims = computed(() => {
+  const d = props.candidate.score_detail
+  if (!d) return []
+  return [
+    { key: 'skill', label: '技能', value: Math.round(d.skill ?? 0), color: '#6366f1' },
+    { key: 'experience', label: '经验', value: Math.round(d.experience ?? 0), color: '#10b981' },
+    { key: 'education', label: '学历', value: Math.round(d.education ?? 0), color: '#f59e0b' },
+    { key: 'salary', label: '薪资', value: Math.round(d.salary ?? 0), color: '#ec4899' },
+  ]
 })
 
 /** 技能展示前 4 个 */
@@ -176,6 +204,51 @@ function handleSelect(): void {
     &.is-on {
       color: var(--color-accent);
     }
+  }
+
+  &__dims {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) 0;
+  }
+
+  &__dim {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__dim-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--text-xs);
+  }
+
+  &__dim-label {
+    color: var(--color-ink-mute);
+    letter-spacing: 0.02em;
+  }
+
+  &__dim-value {
+    font-family: var(--font-mono);
+    color: var(--color-ink-soft);
+    font-weight: 600;
+  }
+
+  &__dim-bar {
+    width: 100%;
+    height: 4px;
+    background: var(--color-line-soft);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  &__dim-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width var(--duration-base) var(--ease-out);
   }
 
   &__meta {

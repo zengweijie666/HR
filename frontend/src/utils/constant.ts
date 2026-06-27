@@ -11,6 +11,7 @@ export const INTENT_TYPES = {
   search: '搜索推荐',
   detail: '详情查询',
   compare: '对比',
+  qa: '通用问答',
 } as const
 
 /** 检索策略 */

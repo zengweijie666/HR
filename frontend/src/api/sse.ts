@@ -71,7 +71,7 @@ export function dispatch(event: string, data: unknown, handlers: SSEHandlers): v
       handlers.onCandidates?.(data as CandidateCard[])
       break
     case 'done':
-      handlers.onDone?.(data as { message_id: string; response: string })
+      handlers.onDone?.(data as { message_id: string; response: string; title?: string | null })
       break
     case 'error':
       handlers.onError?.(data as { code: number; message: string })

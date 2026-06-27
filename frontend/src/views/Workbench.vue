@@ -94,6 +94,9 @@ async function loadMessages(sessionId: string): Promise<void> {
   try {
     const list = await getMessages(sessionId)
     chatStore.setMessages(list || [])
+    // 切换会话时，用最后一条 assistant 消息的 candidates 初始化推荐区
+    const lastAssistant = [...(list || [])].reverse().find((m) => m.role === 'assistant')
+    recommendCandidates.value = lastAssistant?.candidates || []
   } catch (err) {
     const msg = err instanceof Error ? err.message : '加载会话消息失败'
     ElMessage.error(msg)
@@ -156,15 +159,20 @@ function handleSelectCandidate(candidate: CandidateCardType): void {
 }
 
 /**
- * 监听消息变化，同步推荐候选人（取最后一条 assistant 消息的 candidates）
+ * 监听消息变化，同步推荐候选人
+ * - 检索类意图（search/compare/detail）：用最新 candidates 覆盖卡片（含空结果，体现'无匹配'）
+ * - 非检索类意图（chitchat/qa）：保留既有卡片，避免追问时卡片消失
  */
 watch(
   () => chatStore.messages.length,
   () => {
     const last = chatStore.messages[chatStore.messages.length - 1]
-    if (last && last.role === 'assistant') {
-      recommendCandidates.value = last.candidates || []
-    }
+    if (!last || last.role !== 'assistant') return
+    const intent = last.intent
+    // 闲聊/通用问答：保留既有推荐卡片
+    if (intent === 'chitchat' || intent === 'qa') return
+    // 检索类意图：覆盖（含空结果）
+    recommendCandidates.value = last.candidates || []
   },
 )
 

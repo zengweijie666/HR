@@ -32,7 +32,7 @@ export type SSEEvent =
   | { event: 'rank'; data: { ranked: { candidate_id: string; score: number }[] } }
   | { event: 'token'; data: { delta: string } }
   | { event: 'candidates'; data: { candidates: CandidateCard[] } }
-  | { event: 'done'; data: { message_id: string; response: string } }
+  | { event: 'done'; data: { message_id: string; response: string; title?: string | null } }
   | { event: 'error'; data: { code: number; message: string } }
 
 export interface SSEHandlers {
@@ -42,6 +42,6 @@ export interface SSEHandlers {
   onRank?: (data: { ranked: { candidate_id: string; score: number }[] }) => void
   onToken?: (delta: string) => void
   onCandidates?: (candidates: CandidateCard[]) => void
-  onDone?: (data: { message_id: string; response: string }) => void
+  onDone?: (data: { message_id: string; response: string; title?: string | null }) => void
   onError?: (data: { code: number; message: string }) => void
 }

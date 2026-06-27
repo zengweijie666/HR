@@ -170,9 +170,13 @@ async function handleSend(): Promise<void> {
             last.candidates = candidates
           }
         },
-        onDone: () => {
+        onDone: (data) => {
           chatStore.setIntent('')
           chatStore.setStrategy('')
+          // 首条消息后端会回传新标题，同步到 sessions 列表
+          if (data.title) {
+            chatStore.updateSessionTitle(sessionId, data.title)
+          }
         },
         onError: (data) => {
           ElMessage.error(data.message || '流式响应出错')

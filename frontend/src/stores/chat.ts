@@ -84,6 +84,19 @@ export const useChatStore = defineStore('chat', () => {
     strategy.value = s
   }
 
+  /**
+   * 更新指定会话的标题（用于首条消息后由后端 done 事件回传新标题）
+   * @param sessionId 会话 ID
+   * @param title 新标题
+   */
+  function updateSessionTitle(sessionId: string, title: string): void {
+    if (!sessionId || !title) return
+    const target = sessions.value.find((s) => s.session_id === sessionId)
+    if (target) {
+      target.title = title
+    }
+  }
+
   /** 标记流式输出开始 */
   function startStream(): void {
     streaming.value = true
@@ -116,6 +129,7 @@ export const useChatStore = defineStore('chat', () => {
     appendToken,
     setIntent,
     setStrategy,
+    updateSessionTitle,
     startStream,
     stopStream,
     reset,

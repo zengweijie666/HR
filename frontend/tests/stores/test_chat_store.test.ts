@@ -96,4 +96,25 @@ describe('stores/chat', () => {
     expect(chat.strategy).toBe('')
     expect(chat.streaming).toBe(false)
   })
+
+  it('updateSessionTitle 更新指定会话的标题', () => {
+    const chat = useChatStore()
+    chat.setSessions([
+      { session_id: 's1', title: '新会话', created_at: '', updated_at: '' },
+      { session_id: 's2', title: '其他', created_at: '', updated_at: '' },
+    ])
+    chat.updateSessionTitle('s1', '推荐前端工程师')
+    expect(chat.sessions[0].title).toBe('推荐前端工程师')
+    expect(chat.sessions[1].title).toBe('其他')
+  })
+
+  it('updateSessionTitle 空 sessionId 或空 title 时不更新', () => {
+    const chat = useChatStore()
+    chat.setSessions([
+      { session_id: 's1', title: '原标题', created_at: '', updated_at: '' },
+    ])
+    chat.updateSessionTitle('', '新标题')
+    chat.updateSessionTitle('s1', '')
+    expect(chat.sessions[0].title).toBe('原标题')
+  })
 })

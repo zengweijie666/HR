@@ -52,6 +52,27 @@ describe('components/candidate/CandidateCard', () => {
     const stars = wrapper.findAll('.candidate-card__star.is-on')
     expect(stars.length).toBe(5)
   })
+
+  it('提供 score_detail 时渲染 4 维度评分条', () => {
+    const wrapper = mount(CandidateCard, {
+      props: {
+        candidate: {
+          ...candidate,
+          score_detail: { skill: 85, experience: 70, education: 90, salary: 60 },
+        },
+      },
+    })
+    const dims = wrapper.findAll('.candidate-card__dim')
+    expect(dims.length).toBe(4)
+    // 第一个维度为 skill=85
+    expect(dims[0].find('.candidate-card__dim-label').text()).toBe('技能')
+    expect(dims[0].find('.candidate-card__dim-value').text()).toBe('85')
+  })
+
+  it('无 score_detail 时不渲染维度区', () => {
+    const wrapper = mount(CandidateCard, { props: { candidate } })
+    expect(wrapper.find('.candidate-card__dims').exists()).toBe(false)
+  })
 })
 
 describe('components/candidate/TagInput', () => {
