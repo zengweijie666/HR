@@ -85,3 +85,45 @@ async def test_send_message_stream(svc):
     # SSE 字符串以 "event: <type>\n..." 开头
     event_types = [e.split(":", 1)[1].split("\n", 1)[0].strip() for e in events if e.startswith("event:")]
     assert "intent" in event_types or "done" in event_types or "error" in event_types
+
+
+@pytest.mark.asyncio
+async def test_send_message_stream_qa_branch_skips_retrieval(svc):
+    """qa 意图应跳过检索，不触发 retrieve_rank_node"""
+    svc.sessions_coll.find_one = AsyncMock(return_value={
+        "session_id": "s1", "messages": [], "user_id": "u1"
+    })
+
+    retrieve_called = {"value": False}
+
+    async def mock_retrieve(state):
+        retrieve_called["value"] = True
+        return {**state, "candidates": []}
+
+    with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
+         patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
+         patch("app.services.agent_service.llm_client") as mock_llm, \
+         patch.object(svc, "_save_message", AsyncMock()):
+
+        async def fake_stream(*args, **kwargs):
+            for tok in ["这是", "通用", "回答"]:
+                yield tok
+
+        mock_llm.chat_stream = fake_stream
+        events = []
+        async for sse_str in svc.send_message_stream(
+            session_id="s1", user_id="u1", query="HR 怎么筛选候选人"
+        ):
+            events.append(sse_str)
+            if len(events) > 50:
+                break
+
+    # qa 分支不应触发检索
+    assert not retrieve_called["value"], "qa 分支不应触发检索"
+    # 应有 token 事件
+    event_types = [e.split(":", 1)[1].split("\n", 1)[0].strip() for e in events if e.startswith("event:")]
+    assert "token" in event_types, "qa 分支应有 token 事件"
+    assert "done" in event_types, "应有 done 事件"
+    # 不应有 retrieval/candidates 事件
+    assert "retrieval" not in event_types, "qa 分支不应有 retrieval 事件"
+    assert "candidates" not in event_types, "qa 分支不应有 candidates 事件"

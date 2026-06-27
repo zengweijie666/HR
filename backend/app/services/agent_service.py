@@ -248,6 +248,14 @@ class AgentService:
                     {"role": "system", "content": "你是 TalentSense HR 招聘助手。友好回答用户的闲聊。"},
                     {"role": "user", "content": chitchat_prompt},
                 ]
+            elif intent_type == "qa":
+                # qa 分支：通用问答（HR 知识/系统使用/通用问题），跳过检索，走 QA_PROMPT
+                from app.agent.prompts import QA_PROMPT
+                qa_prompt = QA_PROMPT.format(query=query)
+                messages = [
+                    {"role": "system", "content": "你是 TalentSense 智能招聘助手。回答 HR 流程咨询、系统使用帮助、通用知识问答。不编造候选人信息。"},
+                    {"role": "user", "content": qa_prompt},
+                ]
             else:
                 messages = [
                     {"role": "system", "content": "你是 TalentSense HR 招聘助手。"},
