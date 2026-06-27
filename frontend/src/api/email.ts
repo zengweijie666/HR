@@ -49,9 +49,11 @@ export function sendTestMail(data: SendTestPayload): Promise<SendMailResult> {
 /**
  * 模板列表（登录用户可查，admin 才能增删改）
  * @param category 可选分类筛选
+ * @returns 模板数组（后端返回 {list, total}，此处剥离出 list）
  */
-export function listTemplates(category?: string): Promise<TemplateItem[]> {
-  return request.get('/email/templates', { params: category ? { category } : {} }) as unknown as Promise<TemplateItem[]>
+export async function listTemplates(category?: string): Promise<TemplateItem[]> {
+  const res = await request.get('/email/templates', { params: category ? { category } : {} }) as unknown as { list: TemplateItem[]; total: number }
+  return res?.list ?? []
 }
 
 /**

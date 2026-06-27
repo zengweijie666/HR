@@ -62,7 +62,20 @@ async def lifespan(app: FastAPI):
         admin_username = settings.ADMIN_USERNAME
         exists = await MongoDB.db.users.find_one({"username": admin_username})
         if exists:
-            logger.info(f"管理员账号 {admin_username} 已存在")
+            # 回填早期建库时缺失的 email/name 字段（邮箱登录改造的迁移兜底）
+            need_backfill = {}
+            if not exists.get("email"):
+                need_backfill["email"] = settings.ADMIN_EMAIL
+            if not exists.get("name"):
+                need_backfill["name"] = "管理员"
+            if need_backfill:
+                need_backfill["updated_at"] = datetime.now(timezone.utc).isoformat()
+                await MongoDB.db.users.update_one(
+                    {"username": admin_username}, {"$set": need_backfill}
+                )
+                logger.info(f"管理员账号 {admin_username} 已回填字段: {list(need_backfill.keys())}")
+            else:
+                logger.info(f"管理员账号 {admin_username} 已存在")
         else:
             user_id = f"u_{uuid.uuid4().hex[:12]}"
             now = datetime.now(timezone.utc).isoformat()
