@@ -63,10 +63,10 @@ class ExportService:
         headers = [COLUMN_MAP.get(c, c) for c in columns]
         ws.append(headers)
 
-        # 拉取数据
+        # 拉取数据：前端传的是 resume_id 列表（非 candidate_id）
         docs: list[dict] = []
         if candidate_ids and self.resumes_coll is not None:
-            cursor = self.resumes_coll.find({"candidate_id": {"$in": candidate_ids}})
+            cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
             docs = await cursor.to_list(length=len(candidate_ids))
 
         for doc in docs:

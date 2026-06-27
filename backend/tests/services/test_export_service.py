@@ -62,3 +62,28 @@ async def test_export_excel_all_columns(svc):
     excel_bytes = await svc.export_excel(candidate_ids=["c1"], columns=columns)
     wb = load_workbook(io.BytesIO(excel_bytes))
     assert wb.active.max_column == len(columns)
+
+
+@pytest.mark.asyncio
+async def test_export_by_resume_ids(svc):
+    """导出应按 resume_id 查询（前端传的是 resume_id 而非 candidate_id）"""
+    svc.resumes_coll.find.return_value.to_list = AsyncMock(return_value=[
+        {
+            "resume_id": "res_001", "candidate_id": "c1",
+            "basic_info": {"name": "张三", "gender": "男", "age": 28},
+            "education": "本科", "work_years": 5,
+            "skills": ["Java"], "expected_salary": {"min": 20, "max": 30},
+            "tags": ["已面试"], "location": "北京"
+        }
+    ])
+    excel_bytes = await svc.export_excel(
+        candidate_ids=["res_001"],  # 前端实际传的是 resume_id
+        columns=["name", "work_years"]
+    )
+    # 验证查询用的是 resume_id 而非 candidate_id
+    call_args = svc.resumes_coll.find.call_args
+    query = call_args.args[0]
+    assert "resume_id" in query
+    wb = load_workbook(io.BytesIO(excel_bytes))
+    ws = wb.active
+    assert ws.cell(2, 1).value == "张三"
