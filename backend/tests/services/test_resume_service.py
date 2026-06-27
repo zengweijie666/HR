@@ -5,6 +5,7 @@
 功能描述: ResumeService 单元测试，覆盖上传/解析/去重/脱敏/CRUD
 """
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.resume_service import ResumeService
 
@@ -143,6 +144,85 @@ async def test_list_search_includes_tags(svc):
     # $or 条件中应包含 tags 字段
     or_conditions = query.get("$or", [])
     assert any("tags" in cond for cond in or_conditions), f"关键词搜索应包含 tags 字段, 实际: {or_conditions}"
+
+
+def _make_resume_doc(phone_raw="13800138000", email_raw="zhangsan@test.com"):
+    """构造测试用简历文档"""
+    return {
+        "resume_id": "r1", "candidate_id": "c1",
+        "basic_info": {
+            "name": "张三",
+            "phone": phone_raw, "email": email_raw,
+            "phone_masked": "138****8000", "email_masked": "z***@test.com",
+            "gender": "男", "age": 28, "location": "上海",
+        },
+        "skills": [], "tags": [], "summary": "",
+        "expected_salary": {"min": 10, "max": 20},
+        "parse_info": {"parse_status": "completed"},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _mock_find_returning(docs):
+    """构造 motor find() 链式 mock"""
+    mock_cursor = MagicMock()
+    mock_cursor.skip.return_value.limit.return_value.sort.return_value.to_list = AsyncMock(return_value=docs)
+    return MagicMock(return_value=mock_cursor)
+
+
+@pytest.mark.asyncio
+async def test_list_returns_raw_phone_for_admin(svc):
+    """admin 用户看到原始 phone/email"""
+    svc.resumes_coll.find = _mock_find_returning([_make_resume_doc()])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=1)
+
+    result = await svc.list(current_user={"role": "admin"})
+    item = result["list"][0]
+    assert item["phone"] == "13800138000"
+    assert item["email"] == "zhangsan@test.com"
+    assert "phone_masked" not in item
+    assert "email_masked" not in item
+
+
+@pytest.mark.asyncio
+async def test_list_returns_masked_for_normal_user(svc):
+    """普通用户看到 masked 字段"""
+    svc.resumes_coll.find = _mock_find_returning([_make_resume_doc()])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=1)
+
+    result = await svc.list(current_user={"role": "user"})
+    item = result["list"][0]
+    assert item["phone_masked"] == "138****8000"
+    assert item["email_masked"] == "z***@test.com"
+    assert "phone" not in item
+    assert "email" not in item
+
+
+@pytest.mark.asyncio
+async def test_list_returns_masked_when_no_user(svc):
+    """current_user=None 时保守返回 masked"""
+    svc.resumes_coll.find = _mock_find_returning([_make_resume_doc()])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=1)
+
+    result = await svc.list(current_user=None)
+    item = result["list"][0]
+    assert item["phone_masked"] == "138****8000"
+    assert "phone" not in item
+
+
+@pytest.mark.asyncio
+async def test_list_falls_back_to_masked_for_old_resumes(svc):
+    """旧文档无 phone/email 字段时 admin 兜底用 masked"""
+    doc = _make_resume_doc()
+    doc["basic_info"].pop("phone")  # 模拟旧文档
+    doc["basic_info"].pop("email")
+    svc.resumes_coll.find = _mock_find_returning([doc])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=1)
+
+    result = await svc.list(current_user={"role": "admin"})
+    item = result["list"][0]
+    assert item["phone"] == "138****8000"  # 兜底用 masked
+    assert item["email"] == "z***@test.com"
 
 
 @pytest.mark.asyncio

@@ -394,19 +394,21 @@ class ResumeService:
 
     async def list(self, page: int = 1, page_size: int = 20, keyword: str = None, tag: str = None,
                    is_favorite: bool = None, education_min: int = None, work_years_min: int = None,
-                   salary_min: int = None, salary_max: int = None, status: str = None) -> dict:
-        """AC3.1-3.8: 分页列表查询
+                   salary_min: int = None, salary_max: int = None, status: str = None,
+                   current_user: dict = None) -> dict:
+        """AC3.1-3.8: 分页列表查询（根据 current_user.role 返回原始/脱敏手机邮箱）
 
         入参:
             page: 页码（从 1 开始）
             page_size: 每页条数
-            keyword: 姓名/技能关键词
+            keyword: 姓名/技能/标签/摘要关键词
             tag: 标签过滤
             is_favorite: 收藏过滤
             education_min: 最低学历
             work_years_min: 最低工作年限
             salary_min / salary_max: 薪资区间
             status: 解析状态过滤
+            current_user: 当前用户（含 role 字段），决定返回原始/脱敏手机邮箱
         出参:
             {"list", "total", "page", "page_size", "total_pages"}
             list 中每项已将 basic_info/parse_info 扁平化到顶层，便于前端卡片直接消费
@@ -436,20 +438,23 @@ class ResumeService:
         cursor = self.resumes_coll.find(query, {"_id": 0}).skip(skip).limit(page_size).sort("created_at", -1)
         raw_items = await cursor.to_list(length=page_size)
         # 扁平化：前端 ResumeListItem 期望 name/gender/age/location/parse_status 在顶层
-        items = [self._flatten_for_list(it) for it in raw_items]
+        items = [self._flatten_for_list(it, current_user) for it in raw_items]
         return {
             "list": items, "total": total, "page": page, "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
         }
 
     @staticmethod
-    def _flatten_for_list(doc: dict) -> dict:
-        """将 MongoDB 文档的 basic_info/parse_info 扁平化到顶层，兼容前端 ResumeListItem 类型
+    def _flatten_for_list(doc: dict, current_user: dict = None) -> dict:
+        """将 MongoDB 文档的 basic_info/parse_info 扁平化到顶层，根据 current_user 角色返回原始/脱敏手机邮箱
 
         入参:
             doc: MongoDB 原始文档
+            current_user: 当前用户信息（含 role 字段），决定返回 phone/email 或 masked 字段
         出参:
             扁平化后的字典，顶层包含 name/gender/age/location/parse_status 等字段
+            admin 用户看到 phone/email（旧文档无原始值时兜底用 masked）
+            普通用户/未登录看到 phone_masked/email_masked
         """
         if not doc:
             return doc
@@ -464,6 +469,20 @@ class ResumeService:
             flat["name"] = basic.get("name", "")
         if "parse_status" not in flat:
             flat["parse_status"] = parse.get("parse_status", "pending")
+        # 根据 RBAC 决定返回原始值还是 masked 值
+        is_admin = bool(current_user and current_user.get("role") == "admin")
+        if is_admin:
+            # admin 看原始值，旧文档无 phone/email 字段时兜底用 masked
+            flat["phone"] = basic.get("phone") or basic.get("phone_masked", "")
+            flat["email"] = basic.get("email") or basic.get("email_masked", "")
+            flat.pop("phone_masked", None)
+            flat.pop("email_masked", None)
+        else:
+            # 普通用户/未登录看 masked 值，移除原始字段（防止泄露）
+            flat["phone_masked"] = basic.get("phone_masked", "")
+            flat["email_masked"] = basic.get("email_masked", "")
+            flat.pop("phone", None)
+            flat.pop("email", None)
         return flat
 
     async def delete(self, resume_id: str) -> None:
