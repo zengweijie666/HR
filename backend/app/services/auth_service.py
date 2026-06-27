@@ -21,9 +21,33 @@ class AuthService:
     """认证服务"""
 
     def __init__(self):
-        from app.core.database import MongoDB, RedisClient
-        self.users_coll = MongoDB.db.users if MongoDB.db is not None else None
-        self.redis = RedisClient.get_client() if RedisClient.pool is not None else None
+        pass
+
+    @property
+    def users_coll(self):
+        """延迟获取 MongoDB users collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_users_coll"):
+            return self._users_coll
+        from app.core.database import MongoDB
+        return MongoDB.db.users if MongoDB.db is not None else None
+
+    @users_coll.setter
+    def users_coll(self, value):
+        """测试注入用"""
+        self._users_coll = value
+
+    @property
+    def redis(self):
+        """延迟获取 Redis client（避免模块导入时 Redis 未连接）"""
+        if hasattr(self, "_redis"):
+            return self._redis
+        from app.core.database import RedisClient
+        return RedisClient.get_client() if RedisClient.pool is not None else None
+
+    @redis.setter
+    def redis(self, value):
+        """测试注入用"""
+        self._redis = value
 
     @staticmethod
     def hash_password(password: str) -> str:

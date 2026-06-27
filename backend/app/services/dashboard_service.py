@@ -15,9 +15,43 @@ class DashboardService:
     """数据看板服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
-        self.sessions_coll = MongoDB.db.chat_sessions if MongoDB.db is not None else None
-        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db is not None else None
+        pass
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
+
+    @property
+    def sessions_coll(self):
+        """延迟获取 MongoDB chat_sessions collection"""
+        if hasattr(self, "_sessions_coll"):
+            return self._sessions_coll
+        return MongoDB.db.chat_sessions if MongoDB.db is not None else None
+
+    @sessions_coll.setter
+    def sessions_coll(self, value):
+        """测试注入用"""
+        self._sessions_coll = value
+
+    @property
+    def notes_coll(self):
+        """延迟获取 MongoDB interview_notes collection"""
+        if hasattr(self, "_notes_coll"):
+            return self._notes_coll
+        return MongoDB.db.interview_notes if MongoDB.db is not None else None
+
+    @notes_coll.setter
+    def notes_coll(self, value):
+        """测试注入用"""
+        self._notes_coll = value
 
     async def get_stats(self) -> dict:
         """AC22.1-22.3: 看板统计

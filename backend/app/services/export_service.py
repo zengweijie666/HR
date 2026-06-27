@@ -32,7 +32,19 @@ class ExportService:
     """Excel 导出服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+        pass
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
 
     async def export_excel(self, candidate_ids: list[str], columns: list[str]) -> bytes:
         """AC14.1-14.3: 导出 Excel
@@ -58,9 +70,14 @@ class ExportService:
             docs = await cursor.to_list(length=len(candidate_ids))
 
         for doc in docs:
+            # basic_info 下的字段扁平化读取（name/gender/age/location/phone_masked/email_masked）
+            basic = doc.get("basic_info") or {}
             row = []
             for col in columns:
-                val = doc.get(col, "")
+                if col in ("name", "gender", "age", "location", "phone_masked", "email_masked"):
+                    val = basic.get(col, "") or doc.get(col, "")
+                else:
+                    val = doc.get(col, "")
                 if col in ("skills", "tags") and isinstance(val, list):
                     val = "、".join(val)
                 elif col == "expected_salary" and isinstance(val, dict):

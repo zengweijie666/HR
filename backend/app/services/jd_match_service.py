@@ -21,11 +21,22 @@ class JdMatchService:
     """JD 匹配服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.embedding = embedding_model
         self.vector_store = vector_store
         self.reranker = reranker_model
         self.llm = llm_client
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
 
     async def match_jd(self, jd_text: str, top_k: int = 10) -> dict:
         """AC19.1-19.2: JD 匹配主流程
@@ -58,9 +69,18 @@ class JdMatchService:
         # 4. Reranker 精排
         if chunks:
             docs = [c.get("parent_content", "") for c in chunks]
-            scores = self.reranker.rerank(query, docs)
-            for i, c in enumerate(chunks):
-                c["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
+            try:
+                scores = self.reranker.rerank(query, docs)
+                if scores is None:
+                    scores = []
+                elif isinstance(scores, (int, float)):
+                    scores = [scores]
+                for i, c in enumerate(chunks):
+                    c["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
+            except Exception as e:
+                logger.warning(f"JD 匹配 Reranker 精排失败，使用原始分数: {e}")
+                for c in chunks:
+                    c["rerank_score"] = 0.0
             chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
             chunks = chunks[:top_k]
 

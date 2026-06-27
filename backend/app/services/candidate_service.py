@@ -16,9 +16,20 @@ class CandidateService:
     """相似候选人推荐 + 对比"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.embedding = embedding_model
         self.vector_store = vector_store
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
 
     async def get_similar(self, resume_id: str, top_k: int = 5) -> list[dict]:
         """AC15.1: 基于简历向量找相似候选人
@@ -73,7 +84,7 @@ class CandidateService:
             salary = doc.get("expected_salary", {}) or {}
             candidates.append({
                 "candidate_id": doc.get("candidate_id"),
-                "name": doc.get("name", ""),
+                "name": doc.get("basic_info", {}).get("name", "") or doc.get("name", ""),
                 "work_years": doc.get("work_years", 0),
                 "education_level": doc.get("education_level", 0),
                 "education": doc.get("education", ""),

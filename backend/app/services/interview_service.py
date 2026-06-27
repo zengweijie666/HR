@@ -20,8 +20,31 @@ class InterviewService:
     """面试服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
-        self.notes_coll = MongoDB.db.interview_notes if MongoDB.db is not None else None
+        pass
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
+
+    @property
+    def notes_coll(self):
+        """延迟获取 MongoDB interview_notes collection"""
+        if hasattr(self, "_notes_coll"):
+            return self._notes_coll
+        return MongoDB.db.interview_notes if MongoDB.db is not None else None
+
+    @notes_coll.setter
+    def notes_coll(self, value):
+        """测试注入用"""
+        self._notes_coll = value
 
     async def generate_questions(
         self, resume_id: str, job_title: str = "", count: int = 5
@@ -42,9 +65,11 @@ class InterviewService:
             logger.warning(f"生成面试题失败: 简历不存在 {resume_id}")
             return []
 
+        # name 等字段存在 basic_info 嵌套下，需扁平化读取
+        basic = doc.get("basic_info") or {}
         prompt = INTERVIEW_QUESTION_PROMPT.format(
             job_title=job_title,
-            name=doc.get("name", ""),
+            name=basic.get("name", "") or doc.get("name", ""),
             skills=", ".join(doc.get("skills", [])),
             work_years=doc.get("work_years", 0),
             summary=doc.get("summary", ""),

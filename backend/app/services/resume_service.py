@@ -361,6 +361,14 @@ class ResumeService:
         doc = await self.resumes_coll.find_one({"resume_id": resume_id}, {"_id": 0})
         if not doc:
             raise NotFoundError("简历不存在")
+        # 扁平化 basic_info 顶层字段（前端期望 name/gender/age/location 在顶层）
+        basic = doc.get("basic_info") or {}
+        for key in ("name", "gender", "age", "location", "phone_masked", "email_masked"):
+            if key not in doc and key in basic:
+                doc[key] = basic[key]
+        # name 兜底（避免 basic_info 缺失时前端拿到 None）
+        if not doc.get("name"):
+            doc["name"] = doc.get("name", "") or ""
         return doc
 
     async def list(self, page: int = 1, page_size: int = 20, keyword: str = None, tag: str = None,

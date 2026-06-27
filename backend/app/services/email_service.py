@@ -41,8 +41,31 @@ class EmailService:
     """邮件服务：发送推荐邮件 + SMTP 配置管理"""
 
     def __init__(self):
-        self.config_coll = MongoDB.db.email_config if MongoDB.db is not None else None
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+        pass
+
+    @property
+    def config_coll(self):
+        """延迟获取 MongoDB email_config collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_config_coll"):
+            return self._config_coll
+        return MongoDB.db.email_config if MongoDB.db is not None else None
+
+    @config_coll.setter
+    def config_coll(self, value):
+        """测试注入用"""
+        self._config_coll = value
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
 
     async def send_recommendation(
         self, to_email: str, candidate_ids: list[str], job_title: str = ""
@@ -139,12 +162,15 @@ class EmailService:
         """
         rows = ""
         for c in candidates:
+            # name 在 basic_info 嵌套下，需扁平化读取
+            basic = c.get("basic_info") or {}
+            name = basic.get("name", "") or c.get("name", "")
             skills = "、".join(c.get("skills", []))
             salary = c.get("expected_salary", {}) or {}
             salary_str = f"{salary.get('min', 0)}-{salary.get('max', 0)}K"
             rows += f"""
             <tr>
-                <td>{c.get('name', '')}</td>
+                <td>{name}</td>
                 <td>{c.get('work_years', 0)}年</td>
                 <td>{skills}</td>
                 <td>{salary_str}</td>
