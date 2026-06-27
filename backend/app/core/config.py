@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     RETRIEVE_TOP_K: int = 20
     RERANK_TOP_K: int = 10
 
+    # 管理员初始化（启动时自动创建）
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_EMAIL: str = "admin@test.com"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
