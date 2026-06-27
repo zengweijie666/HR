@@ -43,3 +43,29 @@ def test_logout():
             r = client.post("/api/v1/auth/logout")
             body = r.json()
             assert body["code"] == 0
+
+
+def test_register_api_success():
+    """注册接口成功返回 pending"""
+    with patch("app.api.auth.AuthService") as MockSvc:
+        instance = MockSvc.return_value
+        instance.register = AsyncMock(return_value={"user_id": "u_x", "username": "zhangsan", "status": "pending"})
+        client = TestClient(app, raise_server_exceptions=False)
+        r = client.post("/api/v1/auth/register", json={"username": "zhangsan", "password": "Pass1234", "email": "z@t.com", "name": "张三"})
+        body = r.json()
+        assert r.status_code == 200
+        assert body["code"] == 0
+        assert body["data"]["status"] == "pending"
+
+
+def test_change_password_api_success():
+    """修改密码接口成功"""
+    with patch("app.api.auth.AuthService") as MockSvc:
+        instance = MockSvc.return_value
+        instance.change_password = AsyncMock(return_value=None)
+        client = TestClient(app, raise_server_exceptions=False)
+        with patch("app.api.deps.AuthService.verify_token", AsyncMock(return_value={"user_id": "u1", "username": "admin", "role": "hr"})):
+            r = client.put("/api/v1/auth/password", json={"old_password": "Old1234", "new_password": "New12345"}, headers={"Authorization": "Bearer fake"})
+            body = r.json()
+            assert r.status_code == 200
+            assert body["code"] == 0
