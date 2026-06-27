@@ -104,3 +104,27 @@ async def test_preview_url(svc):
     result = await svc.get_preview_url("r1")
     assert result["preview_url"] == "http://signed"
     assert result["file_type"] == "pdf"
+
+
+@pytest.mark.asyncio
+async def test_parse_overwrite_deletes_existing(svc):
+    """overwrite=True 且检测到重复时，应删除旧简历（MinIO + MongoDB + Milvus）"""
+    # mock _extract_text 返回有效文本（避免 fitz 解析 b"pdf" 报错）
+    svc._extract_text = MagicMock(return_value="张三 13812341234 a@b.com")
+    svc.llm.chat = AsyncMock(return_value='{"name":"张三","phone":"13812341234","email":"a@b.com","skills":[],"work_experience":[],"education_detail":[],"projects":[]}')
+    svc.dedup_checker = AsyncMock()
+    svc.dedup_checker.check = AsyncMock(return_value="res_existing")
+    # 旧简历文档查找返回 file_id
+    svc.resumes_coll.find_one = AsyncMock(return_value={
+        "resume_id": "res_existing",
+        "file_info": {"file_id": "minio_old"}
+    })
+    # mock embedding.encode 返回 (dense, sparse) 二元组
+    svc.embedding.encode = MagicMock(return_value=([[0.1]], [[0.2]]))
+    await svc._parse_and_index("res_new", b"pdf", "minio_new", "test.pdf", overwrite=True)
+    # 验证删除了旧简历的 MinIO 文件
+    svc.minio.delete.assert_called_with("minio_old")
+    # 验证删除了旧简历的 MongoDB 记录
+    svc.resumes_coll.delete_one.assert_any_call({"resume_id": "res_existing"})
+    # 验证删除了旧简历的 Milvus 向量
+    svc.vector_store.delete_by_resume_id.assert_any_call("res_existing")

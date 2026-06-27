@@ -157,16 +157,31 @@ class ResumeService:
             email_h = hash_email(structured.get("email", ""))
             dedup_checker = self.dedup_checker or DedupChecker(self.resumes_coll)
             existing = await dedup_checker.check(phone_h, email_h)
-            if existing and not overwrite:
-                await self.resumes_coll.update_one(
-                    {"resume_id": resume_id},
-                    update={"$set": {
-                        "is_duplicate": True, "duplicate_with": existing,
-                        "parse_info": {"parse_status": "completed", "parse_time": datetime.now(timezone.utc).isoformat()},
-                    }},
-                )
-                logger.info(f"简历 {resume_id} 重复，关联 {existing}")
-                return
+            if existing:
+                if overwrite:
+                    # 覆盖模式：删除旧简历的 MinIO 文件 + MongoDB 记录 + Milvus 向量
+                    try:
+                        old_doc = await self.resumes_coll.find_one(
+                            {"resume_id": existing}, {"file_info": 1}
+                        )
+                        if old_doc and old_doc.get("file_info", {}).get("file_id"):
+                            self.minio.delete(old_doc["file_info"]["file_id"])
+                        await self.resumes_coll.delete_one({"resume_id": existing})
+                        await self.vector_store.delete_by_resume_id(existing)
+                        logger.info(f"覆盖模式：已删除旧简历 {existing}")
+                    except Exception as del_err:
+                        logger.warning(f"覆盖删除旧简历 {existing} 失败: {del_err}")
+                else:
+                    # 非覆盖：标记当前简历为重复
+                    await self.resumes_coll.update_one(
+                        {"resume_id": resume_id},
+                        update={"$set": {
+                            "is_duplicate": True, "duplicate_with": existing,
+                            "parse_info": {"parse_status": "completed", "parse_time": datetime.now(timezone.utc).isoformat()},
+                        }},
+                    )
+                    logger.info(f"简历 {resume_id} 重复，关联 {existing}")
+                    return
             # 8. 父子块切分
             children, parents = split_parent_child(text)
             # 9. BGE-M3 编码 + 10. 写入 Milvus（索引失败仅 warning，不拖垮 parse_status）
