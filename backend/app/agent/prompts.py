@@ -5,13 +5,67 @@
 功能描述: 集中管理所有 Prompt 模板
 """
 
-RESUME_EXTRACT_PROMPT = """从以下简历文本中提取结构化信息，返回 JSON，字段包括：
-name, phone, email, gender, age, location, education(专科/本科/硕士/博士), education_level(0-3),
-work_years, skills(list), work_experience(list of {{company,position,start_date,end_date,description}}),
-education_detail(list of {{school,major,degree,start_date,end_date}}), summary, salary
-简历文本：
+RESUME_EXTRACT_PROMPT = """请从以下简历文本中提取结构化信息，并以严格的 JSON 格式返回。
+
+要求提取的字段及格式如下：
+{{
+  "name": "姓名（字符串，中文全名，如'张三'）",
+  "phone": "手机号（字符串，11位中国大陆手机号，如'13800138000'）",
+  "email": "邮箱（字符串，标准邮箱格式）",
+  "gender": "性别（字符串：'男'或'女'，无法判断则填空字符串）",
+  "age": "年龄（整数，从出生年份推算或直接提取，如28；无法判断填0）",
+  "location": "所在地/现居城市（字符串，如'北京'、'上海'）",
+  "education": "最高学历（字符串：'专科'/'本科'/'硕士'/'博士'/'高中'，无法判断填空字符串）",
+  "education_level": 学历等级（整数：0=专科/高中及以下，1=本科，2=硕士，3=博士）,
+  "work_years": 工作年限（整数，如3、5、10；从工作经历的起止日期推算或直接提取，无法判断填0）,
+  "skills": ["技能1", "技能2"],
+  "work_experience": [
+    {{
+      "company": "公司名称",
+      "position": "职位/岗位",
+      "start_date": "开始日期，格式YYYY-MM，只有年份则补'-01'",
+      "end_date": "结束日期，格式YYYY-MM；至今/在职填'至今'",
+      "description": "工作职责与成就描述（字符串）"
+    }}
+  ],
+  "education_detail": [
+    {{
+      "school": "学校名称",
+      "major": "专业",
+      "degree": "学历/学位（如'本科'、'硕士'）",
+      "start_date": "开始日期，格式YYYY-MM",
+      "end_date": "结束日期，格式YYYY-MM"
+    }}
+  ],
+  "projects": [
+    {{
+      "name": "项目名称",
+      "role": "担任角色",
+      "description": "项目描述与职责"
+    }}
+  ],
+  "summary": "个人总结/自我评价（字符串，简要概括核心优势）",
+  "salary": "期望薪资（字符串，如'15K-25K'、'20k'；没有则填空字符串）"
+}}
+
+提取规则：
+1. 字符串字段：找不到信息填空字符串""，绝对不要返回null
+2. 数字字段（age/education_level/work_years）：找不到填0，绝对不要返回null
+3. 数组字段（skills/work_experience/education_detail/projects）：找不到填空数组[]
+4. education_level必须根据education字段推算：专科/高中=0，本科=1，硕士=2，博士=3
+5. work_years应根据work_experience中的起止日期计算总年限；如果简历直接写了"X年经验"则直接用
+6. skills要从简历全文提取所有技术/业务技能关键词（如Python、Java、Vue、MySQL、项目管理等）
+7. work_experience要提取所有工作经历，不要遗漏；description字段要包含职责和成就
+8. education_detail要提取所有教育经历（本科、硕士等），不要遗漏
+9. projects字段提取项目经验，如果简历中有项目经历段落
+10. 姓名通常出现在简历最开头或个人信息区域；手机号以1开头共11位；邮箱包含@符号
+11. 日期格式统一为YYYY-MM，如2020-07表示2020年7月；只有年份如"2020"则写"2020-01"
+12. 只返回JSON，不要包含任何其他文字说明、markdown标记或代码块包裹
+
+简历文本如下：
+---
 {text}
-返回 JSON："""
+---"""
 
 # ===== 检索策略相关 Prompt =====
 STRATEGY_SELECT_PROMPT = """你是招聘检索策略选择器。根据用户查询选择最合适的改写策略：
