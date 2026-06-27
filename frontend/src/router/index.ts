@@ -54,6 +54,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'JD 匹配' },
       },
       {
+        path: 'email',
+        name: 'EmailCenter',
+        component: () => import('@/views/EmailCenter.vue'),
+        meta: { title: '邮件中心' },
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),

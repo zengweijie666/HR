@@ -39,6 +39,10 @@
           <el-icon><Connection /></el-icon>
           <template #title>JD 匹配</template>
         </el-menu-item>
+        <el-menu-item index="/email">
+          <el-icon><Promotion /></el-icon>
+          <template #title>邮件中心</template>
+        </el-menu-item>
         <el-menu-item index="/dashboard">
           <el-icon><DataLine /></el-icon>
           <template #title>数据看板</template>
@@ -114,6 +118,7 @@ import {
   Expand,
   SwitchButton,
   UserFilled,
+  Promotion,
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
