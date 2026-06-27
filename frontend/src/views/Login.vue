@@ -90,6 +90,11 @@
           </el-button>
         </el-form>
 
+        <p class="page-login__register">
+          还没有账号？<a href="javascript:void(0)" @click="registerDialogRef?.open()">申请账号</a>
+        </p>
+        <RegisterDialog ref="registerDialogRef" />
+
         <p class="page-login__footnote">
           © 2026 TalentSense · 让招聘更智能
         </p>
@@ -109,12 +114,14 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { login } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
+import RegisterDialog from '@/components/auth/RegisterDialog.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref<boolean>(false)
+const registerDialogRef = ref<InstanceType<typeof RegisterDialog>>()
 
 const form = reactive({
   username: '',
@@ -345,6 +352,22 @@ async function handleLogin(): Promise<void> {
     color: var(--color-ink-mute);
     letter-spacing: 0.06em;
     text-align: center;
+  }
+
+  &__register {
+    margin-top: var(--space-5);
+    text-align: center;
+    font-size: var(--text-sm);
+    color: var(--color-ink-mute);
+
+    a {
+      color: var(--color-accent);
+      text-decoration: none;
+      margin-left: 4px;
+      &:hover {
+        text-decoration: underline;
+      }
+    }
   }
 }
 
