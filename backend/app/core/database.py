@@ -36,7 +36,11 @@ class MongoDB:
         await cls.db.email_config.create_index("config_id", unique=True)
         # users 表索引
         await cls.db.users.create_index("username", unique=True)
+        await cls.db.users.create_index("email", unique=True)
         await cls.db.users.create_index([("role", 1), ("status", 1)])
+        # email_templates 表索引
+        await cls.db.email_templates.create_index("template_id", unique=True)
+        await cls.db.email_templates.create_index("name")
         logger.info("MongoDB 已连接", extra={})
 
     @classmethod

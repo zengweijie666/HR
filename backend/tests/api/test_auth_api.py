@@ -18,11 +18,12 @@ def test_login_success():
             user=UserInfo(user_id="u1", username="admin", role="hr", email="a@b.com")
         ))
         client = TestClient(app)
-        r = client.post("/api/v1/auth/login", json={"username": "admin", "password": "123"})
+        r = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": "123"})
         body = r.json()
         assert r.status_code == 200
         assert body["code"] == 0
         assert body["data"]["access_token"] == "at"
+        instance.login.assert_called_once_with("a@b.com", "123")
 
 
 def test_protected_without_token():

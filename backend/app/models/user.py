@@ -13,16 +13,16 @@ class RegisterRequest(BaseModel):
     """HR 自助注册请求（status=pending）"""
     username: str = Field(..., min_length=3, max_length=20, description="用户名")
     password: str = Field(..., min_length=8, max_length=32, description="密码")
-    email: str | None = Field(default=None, description="邮箱（可选）")
-    name: str | None = Field(default=None, max_length=30, description="显示名（可选）")
+    email: str = Field(..., description="邮箱（必填，唯一）")
+    name: str = Field(..., min_length=1, max_length=30, description="显示名（必填）")
 
 
 class CreateUserRequest(BaseModel):
     """管理员直接开号请求（status=approved）"""
     username: str = Field(..., min_length=3, max_length=20)
     password: str = Field(..., min_length=8, max_length=32)
-    email: str | None = None
-    name: str | None = Field(default=None, max_length=30)
+    email: str = Field(..., description="邮箱（必填，唯一）")
+    name: str = Field(..., min_length=1, max_length=30)
     role: Literal["admin", "hr"] = Field(default="hr")
 
 

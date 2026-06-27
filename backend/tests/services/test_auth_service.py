@@ -22,28 +22,29 @@ def auth_service(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_login_success(auth_service):
-    """AC1.1: 正确账号密码登录返回 token"""
+    """AC1.1: 正确邮箱密码登录返回 token"""
     auth_service.users_coll.find_one.return_value = {
-        "user_id": "u1", "username": "admin",
+        "user_id": "u1", "username": "admin", "email": "a@b.com",
         "password_hash": AuthService.hash_password("123456"),
         "role": "hr", "email": "a@b.com"
     }
-    result = await auth_service.login("admin", "123456")
+    result = await auth_service.login("a@b.com", "123456")
     assert result.access_token
     assert result.refresh_token
     assert result.user.username == "admin"
+    auth_service.users_coll.find_one.assert_called_once_with({"email": "a@b.com"})
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(auth_service):
     """AC1.2: 错误密码返回 1001"""
     auth_service.users_coll.find_one.return_value = {
-        "user_id": "u1", "username": "admin",
+        "user_id": "u1", "username": "admin", "email": "a@b.com",
         "password_hash": AuthService.hash_password("123456"),
     }
     from app.core.exceptions import AuthError
     with pytest.raises(AuthError):
-        await auth_service.login("admin", "wrong")
+        await auth_service.login("a@b.com", "wrong")
 
 
 @pytest.mark.asyncio
@@ -111,7 +112,21 @@ async def test_register_username_exists():
     svc.users_coll = AsyncMock()
     svc.users_coll.find_one.return_value = {"username": "zhangsan"}
     with pytest.raises(BizError) as exc:
-        await svc.register(username="zhangsan", password="Pass1234")
+        await svc.register(username="zhangsan", password="Pass1234", email="z@t.com", name="张三")
+    assert exc.value.code == CODE.CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_register_email_exists():
+    """邮箱已注册抛 CONFLICT"""
+    from app.core.exceptions import BizError
+    from app.core.response import CODE
+    svc = AuthService()
+    svc.users_coll = AsyncMock()
+    # username 不存在，但 email 已存在
+    svc.users_coll.find_one = AsyncMock(side_effect=[None, {"email": "z@t.com"}])
+    with pytest.raises(BizError) as exc:
+        await svc.register(username="new", password="Pass1234", email="z@t.com", name="新")
     assert exc.value.code == CODE.CONFLICT
 
 
@@ -121,14 +136,14 @@ async def test_login_pending_rejected():
     svc = AuthService()
     svc.users_coll = AsyncMock()
     svc.users_coll.find_one.return_value = {
-        "user_id": "u1", "username": "zhangsan",
+        "user_id": "u1", "username": "zhangsan", "email": "z@t.com",
         "password_hash": AuthService.hash_password("Pass1234"),
         "role": "hr", "status": "pending",
     }
     svc.redis = AsyncMock()
     svc.redis.exists.return_value = 0
     with pytest.raises(AuthError) as exc:
-        await svc.login("zhangsan", "Pass1234")
+        await svc.login("z@t.com", "Pass1234")
     assert "待审批" in exc.value.message
 
 
@@ -138,14 +153,14 @@ async def test_login_disabled_rejected():
     svc = AuthService()
     svc.users_coll = AsyncMock()
     svc.users_coll.find_one.return_value = {
-        "user_id": "u1", "username": "zhangsan",
+        "user_id": "u1", "username": "zhangsan", "email": "z@t.com",
         "password_hash": AuthService.hash_password("Pass1234"),
         "role": "hr", "status": "disabled",
     }
     svc.redis = AsyncMock()
     svc.redis.exists.return_value = 0
     with pytest.raises(AuthError) as exc:
-        await svc.login("zhangsan", "Pass1234")
+        await svc.login("z@t.com", "Pass1234")
     assert "已禁用" in exc.value.message
 
 

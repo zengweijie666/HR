@@ -4,12 +4,12 @@
 作者: TalentSense Team
 功能描述: 认证相关模型，对应 API-Design.md 一、Auth
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    email: str = Field(..., description="邮箱")
+    password: str = Field(..., description="密码")
 
 
 class RefreshRequest(BaseModel):

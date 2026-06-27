@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.post("/login")
 async def login(body: LoginRequest):
-    result = await AuthService().login(body.username, body.password)
+    result = await AuthService().login(body.email, body.password)
     return success(data=result.model_dump())
 
 

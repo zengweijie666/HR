@@ -44,7 +44,7 @@ async def test_create_user_username_exists():
     svc.users_coll = MagicMock()
     svc.users_coll.find_one = AsyncMock(return_value=_make_user())
     with pytest.raises(ConflictError):
-        await svc.create_user(username="zhangsan", password="Pass1234", role="hr")
+        await svc.create_user(username="zhangsan", password="Pass1234", role="hr", email="z@t.com", name="张三")
 
 
 @pytest.mark.asyncio
@@ -56,6 +56,16 @@ async def test_create_user_success():
     result = await svc.create_user(username="newuser", password="Pass1234", role="hr", email="n@t.com", name="新")
     assert result["username"] == "newuser"
     assert result["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_create_user_email_exists():
+    """邮箱已注册抛 CONFLICT"""
+    svc = UserService()
+    svc.users_coll = MagicMock()
+    svc.users_coll.find_one = AsyncMock(side_effect=[None, {"email": "n@t.com"}])
+    with pytest.raises(ConflictError):
+        await svc.create_user(username="new", password="Pass1234", role="hr", email="n@t.com", name="新")
 
 
 @pytest.mark.asyncio

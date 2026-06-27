@@ -68,24 +68,27 @@ class UserService:
             "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 0,
         }
 
-    async def create_user(self, username: str, password: str, role: str = "hr",
-                          email: str | None = None, name: str | None = None) -> dict:
+    async def create_user(self, username: str, password: str, role: str,
+                          email: str, name: str) -> dict:
         """管理员直接开号（status=approved）
 
         入参:
             username: 用户名
             password: 明文密码
             role: 角色 admin/hr
-            email: 邮箱
-            name: 显示名
+            email: 邮箱（必填，唯一）
+            name: 显示名（必填）
         出参:
             用户信息
         异常:
-            ConflictError: 用户名已存在
+            ConflictError: 用户名或邮箱已存在
         """
-        existing = await self.users_coll.find_one({"username": username})
-        if existing:
+        existing_user = await self.users_coll.find_one({"username": username})
+        if existing_user:
             raise ConflictError("用户名已存在")
+        existing_email = await self.users_coll.find_one({"email": email})
+        if existing_email:
+            raise ConflictError("邮箱已被注册")
         user_id = f"u_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
         doc = {
@@ -93,7 +96,7 @@ class UserService:
             "username": username,
             "password_hash": AuthService.hash_password(password),
             "email": email,
-            "name": name or username,
+            "name": name,
             "role": role,
             "status": "approved",
             "created_at": now,

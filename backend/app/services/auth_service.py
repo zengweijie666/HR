@@ -73,11 +73,16 @@ class AuthService:
         expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         return jwt.encode({**payload, "exp": expire, "type": "refresh"}, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
-    async def login(self, username: str, password: str) -> TokenResponse:
-        """AC1.1/AC1.2 + status 校验（pending/disabled 拒绝登录）"""
-        user_doc = await self.users_coll.find_one({"username": username})
+    async def login(self, email: str, password: str) -> TokenResponse:
+        """AC1.1/AC1.2 + status 校验（pending/disabled 拒绝登录，按 email 查询）
+
+        入参:
+            email: 邮箱
+            password: 明文密码
+        """
+        user_doc = await self.users_coll.find_one({"email": email})
         if not user_doc or not self.verify_password(password, user_doc["password_hash"]):
-            raise AuthError("用户名或密码错误")
+            raise AuthError("邮箱或密码错误")
         # status 校验
         status = user_doc.get("status", "approved")
         if status == "pending":
@@ -130,22 +135,25 @@ class AuthService:
             user=UserInfo(user_id=new_payload["user_id"], username=new_payload["username"], role=new_payload["role"])
         )
 
-    async def register(self, username: str, password: str, email: str | None = None, name: str | None = None) -> dict:
+    async def register(self, username: str, password: str, email: str, name: str) -> dict:
         """HR 自助注册（status=pending, role=hr）
 
         入参:
             username: 用户名
             password: 明文密码
-            email: 邮箱（可选）
-            name: 显示名（可选，默认用 username）
+            email: 邮箱（必填，唯一）
+            name: 显示名（必填）
         出参:
             {"user_id", "username", "status"}
         异常:
-            ConflictError: 用户名已存在
+            ConflictError: 用户名或邮箱已存在
         """
-        existing = await self.users_coll.find_one({"username": username})
-        if existing:
+        existing_user = await self.users_coll.find_one({"username": username})
+        if existing_user:
             raise ConflictError("用户名已存在")
+        existing_email = await self.users_coll.find_one({"email": email})
+        if existing_email:
+            raise ConflictError("邮箱已被注册")
         user_id = f"u_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
         doc = {
@@ -153,14 +161,14 @@ class AuthService:
             "username": username,
             "password_hash": self.hash_password(password),
             "email": email,
-            "name": name or username,
+            "name": name,
             "role": "hr",
             "status": "pending",
             "created_at": now,
             "updated_at": now,
         }
         await self.users_coll.insert_one(doc)
-        logger.info(f"用户注册申请: {username} (pending)")
+        logger.info(f"用户注册申请: {username} ({email}) pending")
         return {"user_id": user_id, "username": username, "status": "pending"}
 
     async def change_password(self, user_id: str, old_password: str, new_password: str) -> None:
