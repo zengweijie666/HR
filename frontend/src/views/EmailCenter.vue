@@ -73,7 +73,7 @@
                 <div class="send-card__vars">
                   <div v-for="v in templateVariables" :key="v" class="send-card__var-item">
                     <span class="send-card__var-label mono">{{ formatVarLabel(v) }}</span>
-                    <el-input v-model="sendForm.variables[v]" placeholder="变量值" />
+                    <el-input v-model="sendForm.variables[v]" :placeholder="formatVarPlaceholder(v)" />
                   </div>
                   <EmptyState v-if="templateVariables.length === 0" text="此模板无需变量" />
                 </div>
@@ -247,6 +247,7 @@ import type {
   TemplateItem, TemplateCategory, TemplateCreatePayload,
 } from '@/types/email'
 import { TEMPLATE_CATEGORY_LABEL } from '@/types/email'
+import { getEmailVarMeta } from '@/utils/constant'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.user?.role === 'admin')
@@ -275,9 +276,15 @@ function categoryLabel(c: string): string {
   return TEMPLATE_CATEGORY_LABEL[c as TemplateCategory] ?? c
 }
 
-/** 格式化变量标签：v -> {{ v }} */
+/** 格式化变量标签：显示中文含义 + 变量名 */
 function formatVarLabel(v: string): string {
-  return `{{ ${v} }}`
+  const meta = getEmailVarMeta(v)
+  return `${meta.label} {{ ${v} }}`
+}
+
+/** 格式化变量输入框占位符：返回有含义的提示词 */
+function formatVarPlaceholder(v: string): string {
+  return getEmailVarMeta(v).placeholder
 }
 
 /** 变量语法示例（避免模板里嵌套 {{ }} 解析错误） */

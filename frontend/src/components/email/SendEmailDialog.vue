@@ -63,7 +63,7 @@
           <div class="send-dialog__vars">
             <div v-for="v in templateVariables" :key="v" class="send-dialog__var-item">
               <span class="send-dialog__var-label mono">{{ formatVarLabel(v) }}</span>
-              <el-input v-model="form.variables[v]" placeholder="变量值" />
+              <el-input v-model="form.variables[v]" :placeholder="formatVarPlaceholder(v)" />
             </div>
           </div>
         </el-form-item>
@@ -114,6 +114,7 @@ import { Message } from '@element-plus/icons-vue'
 import { listTemplates, sendMail } from '@/api/email'
 import type { TemplateItem, TemplateCategory } from '@/types/email'
 import { TEMPLATE_CATEGORY_LABEL } from '@/types/email'
+import { getEmailVarMeta } from '@/utils/constant'
 
 interface OpenPayload {
   /** 预填的模板变量，例如 { candidate_name: '张三', position: 'Java 工程师' } */
@@ -223,9 +224,15 @@ function categoryLabel(c: string): string {
   return TEMPLATE_CATEGORY_LABEL[c as TemplateCategory] ?? c
 }
 
-/** 格式化变量标签 */
+/** 格式化变量标签：显示中文含义 + 变量名 */
 function formatVarLabel(v: string): string {
-  return `{{ ${v} }}`
+  const meta = getEmailVarMeta(v)
+  return `${meta.label} {{ ${v} }}`
+}
+
+/** 格式化变量输入框占位符：返回有含义的提示词 */
+function formatVarPlaceholder(v: string): string {
+  return getEmailVarMeta(v).placeholder
 }
 
 /** 模板切换：保留已填写的变量值 */
