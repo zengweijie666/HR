@@ -45,6 +45,28 @@ export function formatRelative(iso: string | undefined): string {
   return formatDate(iso)
 }
 
+/**
+ * 入库相对时间：返回"今天/昨天/X 天前/X 周前/X 个月前/X 年前"
+ * 用于简历卡片显示入库时间，比 formatRelative 更适合天级别展示
+ * @param isoDate ISO 8601 日期字符串
+ * @returns 中文相对时间文案
+ */
+export function formatRelativeTime(isoDate: string | undefined): string {
+  if (!isoDate) return ''
+  const date = new Date(isoDate)
+  if (isNaN(date.getTime())) return ''
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  if (diffMs < 0) return '未来'
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (diffDays === 0) return '今天'
+  if (diffDays === 1) return '昨天'
+  if (diffDays < 7) return `${diffDays} 天前`
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} 周前`
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} 个月前`
+  return `${Math.floor(diffDays / 365)} 年前`
+}
+
 /** 候选人分数 → 等级 */
 export function scoreLevel(score: number): { label: string; color: string } {
   if (score >= 90) return { label: '极佳', color: '#1a3a32' }

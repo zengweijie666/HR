@@ -21,6 +21,12 @@ export interface ResumeListItem {
   parse_status: 'pending' | 'parsing' | 'completed' | 'failed'
   location?: string
   created_at: string
+  // RBAC 脱敏字段：admin 可见原始值，普通用户可见 masked
+  phone?: string
+  email?: string
+  phone_masked?: string
+  email_masked?: string
+  summary?: string
 }
 
 export interface WorkExperience {
@@ -94,4 +100,9 @@ export interface ResumeListQuery {
   salary_min?: number
   salary_max?: number
   status?: string
+  // 筛选和排序（新增）
+  date_from?: string
+  date_to?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
