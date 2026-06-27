@@ -149,6 +149,10 @@
                 <el-icon><StarFilled v-if="detail.is_favorite" /><Star v-else /></el-icon>
                 {{ detail.is_favorite ? '已收藏' : '收藏' }}
               </el-button>
+              <el-button type="primary" @click="handleSendEmail">
+                <el-icon><Promotion /></el-icon>
+                发送邮件
+              </el-button>
             </div>
           </section>
 
@@ -177,6 +181,9 @@
     </div>
 
     <EmptyState v-else-if="!loading" text="未找到简历信息" />
+
+    <!-- 发送邮件对话框 -->
+    <SendEmailDialog ref="sendEmailDialogRef" />
   </div>
 </template>
 
@@ -188,11 +195,12 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Connection, Star, StarFilled } from '@element-plus/icons-vue'
+import { Connection, Star, StarFilled, Promotion } from '@element-plus/icons-vue'
 import ResumePreview from '@/components/resume/ResumePreview.vue'
 import TagInput from '@/components/candidate/TagInput.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingOverlay from '@/components/common/LoadingOverlay.vue'
+import SendEmailDialog from '@/components/email/SendEmailDialog.vue'
 import {
   getPreviewUrl,
   getResumeDetail,
@@ -212,6 +220,7 @@ const previewUrl = ref<string>('')
 const previewFileType = ref<string>('')
 const notes = ref<string>('')
 const tags = ref<string[]>([])
+const sendEmailDialogRef = ref<InstanceType<typeof SendEmailDialog>>()
 
 /**
  * 加载简历详情
@@ -305,6 +314,23 @@ async function handleToggleFav(): Promise<void> {
  */
 function handleSimilar(): void {
   ElMessage.info('相似推荐功能开发中')
+}
+
+/**
+ * 打开发送邮件对话框
+ * 预填候选人姓名作为模板变量
+ */
+function handleSendEmail(): void {
+  if (!detail.value) return
+  sendEmailDialogRef.value?.open({
+    variables: {
+      candidate_name: detail.value.basic_info?.name ?? detail.value.name ?? '',
+      position: '',
+      company: 'TalentSense',
+      salary: `${detail.value.expected_salary?.min ?? ''}-${detail.value.expected_salary?.max ?? ''}K`,
+      interview_time: '',
+    },
+  })
 }
 
 onMounted(() => {
