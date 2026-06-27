@@ -408,8 +408,10 @@ class ResumeService:
         query = {}
         if keyword:
             query["$or"] = [
-                {"basic_info.name": {"$regex": keyword}},
-                {"skills": {"$regex": keyword}},
+                {"basic_info.name": {"$regex": keyword, "$options": "i"}},
+                {"skills": {"$regex": keyword, "$options": "i"}},
+                {"tags": {"$regex": keyword, "$options": "i"}},
+                {"summary": {"$regex": keyword, "$options": "i"}},
             ]
         if tag:
             query["tags"] = tag

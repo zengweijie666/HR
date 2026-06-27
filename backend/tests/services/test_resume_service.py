@@ -128,3 +128,18 @@ async def test_parse_overwrite_deletes_existing(svc):
     svc.resumes_coll.delete_one.assert_any_call({"resume_id": "res_existing"})
     # 验证删除了旧简历的 Milvus 向量
     svc.vector_store.delete_by_resume_id.assert_any_call("res_existing")
+
+
+@pytest.mark.asyncio
+async def test_list_search_includes_tags(svc):
+    """关键词搜索应包含 tags 字段"""
+    svc.resumes_coll.count_documents = AsyncMock(return_value=1)
+    mock_cursor = MagicMock()
+    mock_cursor.skip.return_value.limit.return_value.sort.return_value.to_list = AsyncMock(return_value=[])
+    svc.resumes_coll.find = MagicMock(return_value=mock_cursor)
+    await svc.list(keyword="急聘", page=1, page_size=20)
+    call_args = svc.resumes_coll.find.call_args
+    query = call_args.args[0]
+    # $or 条件中应包含 tags 字段
+    or_conditions = query.get("$or", [])
+    assert any("tags" in cond for cond in or_conditions), f"关键词搜索应包含 tags 字段, 实际: {or_conditions}"
