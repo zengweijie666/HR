@@ -43,7 +43,7 @@
           <el-icon><DataLine /></el-icon>
           <template #title>数据看板</template>
         </el-menu-item>
-        <el-menu-item index="/settings">
+        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>设置</template>
         </el-menu-item>
