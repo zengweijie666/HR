@@ -27,8 +27,30 @@ class SearchService:
         self.reranker = reranker_model
         self.vector_store = vector_store
         self.strategy_selector = strategy_selector
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
-        self.redis = RedisClient.get_client() if RedisClient.pool is not None else None
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
+
+    @property
+    def redis(self):
+        """延迟获取 Redis client"""
+        if hasattr(self, "_redis"):
+            return self._redis
+        return RedisClient.get_client() if RedisClient.pool is not None else None
+
+    @redis.setter
+    def redis(self, value):
+        """测试注入用"""
+        self._redis = value
 
     async def search(
         self,
@@ -85,14 +107,27 @@ class SearchService:
         # Reranker 精排
         if unique_chunks:
             docs = [c.get("parent_content", "") for c in unique_chunks]
-            scores = self.reranker.rerank(query, docs)
-            for i, c in enumerate(unique_chunks):
-                c["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
-            unique_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
-            unique_chunks = unique_chunks[:top_k]
+            logger.info(f"Reranker 精排开始, {len(docs)} 个文档")
+            try:
+                scores = self.reranker.rerank(query, docs)
+                logger.info(f"Reranker 返回类型={type(scores).__name__}, value={str(scores)[:200]}")
+                if scores is None:
+                    logger.warning("Reranker 返回 None, 跳过精排")
+                    scores = []
+                elif isinstance(scores, (int, float)):
+                    scores = [scores]
+                for i, c in enumerate(unique_chunks):
+                    c["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
+                unique_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
+                unique_chunks = unique_chunks[:top_k]
+            except Exception as e:
+                logger.error(f"Reranker 精排失败: {e}", exc_info=True)
+                for c in unique_chunks:
+                    c["rerank_score"] = 0.0
 
         # 拉取候选人元数据 + LLM 评分
         candidate_ids = [c["candidate_id"] for c in unique_chunks if c.get("candidate_id")]
+        logger.info(f"候选人 ID 列表: {candidate_ids}")
         results = await self._enrich_candidates(candidate_ids, query, unique_chunks)
 
         # 写缓存
@@ -111,7 +146,7 @@ class SearchService:
         """拉取候选人元数据 + LLM 评分
 
         入参:
-            candidate_ids: 候选人 ID 列表
+            candidate_ids: Milvus 返回的 ID 列表（注意：Milvus candidate_id 字段存的是 resume_id）
             query: 原始查询
             chunks: 检索 chunks（用于 rerank_score 回退）
         出参:
@@ -121,28 +156,33 @@ class SearchService:
             return []
         if self.resumes_coll is None:
             return []
-        cursor = self.resumes_coll.find({"candidate_id": {"$in": candidate_ids}})
+        # Milvus 中 candidate_id 字段存的是 resume_id，用 resume_id 查询 MongoDB
+        cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
         docs = await cursor.to_list(length=len(candidate_ids))
+        logger.info(f"MongoDB 查询到 {len(docs)} 条简历文档")
         chunk_map = {c.get("candidate_id"): c for c in chunks}
 
         scored: list[dict] = []
         for doc in docs:
             cid = doc.get("candidate_id")
-            rerank_score = float(chunk_map.get(cid, {}).get("rerank_score", 0.0))
+            rid = doc.get("resume_id")
+            rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
             score = await self._llm_score(query, doc, rerank_score)
             reason = await self._llm_reason(query, doc, score)
             scored.append({
                 "candidate_id": cid,
-                "resume_id": doc.get("resume_id"),
-                "name": doc.get("name", ""),
+                "resume_id": rid,
+                "name": doc.get("basic_info", {}).get("name", "") or doc.get("name", ""),
                 "work_years": doc.get("work_years", 0),
                 "education": doc.get("education", ""),
+                "education_level": doc.get("education_level", 0),
                 "skills": doc.get("skills", []),
                 "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
                 "score": score,
                 "reason": reason,
                 "tags": doc.get("tags", []),
                 "is_favorite": doc.get("is_favorite", False),
+                "summary": doc.get("summary", ""),
             })
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored

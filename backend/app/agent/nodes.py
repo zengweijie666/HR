@@ -63,7 +63,7 @@ async def retrieve_rank_node(state: AgentState) -> dict:
             history=state.get("history", []),
         )
     except Exception as e:
-        logger.error(f"检索失败: {e}")
+        logger.error(f"检索失败: {e}", exc_info=True)
         candidates = []
     return {"candidates": candidates}
 

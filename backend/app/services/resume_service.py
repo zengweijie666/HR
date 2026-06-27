@@ -28,7 +28,6 @@ class ResumeService:
     """简历服务"""
 
     def __init__(self):
-        self.resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
         self.minio = minio_client
         self.ocr = ocr_engine
         self.llm = llm_client
@@ -38,6 +37,18 @@ class ResumeService:
         self.embedding = embedding_model
         self.vector_store = vector_store
         self.dedup_checker = None  # 默认在 _parse_and_index 内按需创建
+
+    @property
+    def resumes_coll(self):
+        """延迟获取 MongoDB resumes collection（避免模块导入时 MongoDB 未连接）"""
+        if hasattr(self, "_resumes_coll"):
+            return self._resumes_coll
+        return MongoDB.db.resumes if MongoDB.db is not None else None
+
+    @resumes_coll.setter
+    def resumes_coll(self, value):
+        """测试注入用"""
+        self._resumes_coll = value
 
     async def upload(self, file_bytes: bytes, file_name: str, content_type: str, overwrite: bool = False, background_tasks=None) -> dict:
         """AC2.1: 上传文件 → MinIO → 后台异步解析

@@ -146,13 +146,13 @@ class AgentService:
             intent_result = await intent_node(state)
             state.update(intent_result)
             yield _sse_event("intent", {
-                "intent_type": state.get("intent_type"),
+                "intent": state.get("intent_type"),
                 "strategy": state.get("strategy"),
             })
 
-            # 2. 检索事件（search/compare 意图）
+            # 2. 检索事件（所有非 chitchat 意图都需要检索：search/compare/detail）
             intent_type = state.get("intent_type")
-            if intent_type in ("search", "compare"):
+            if intent_type in ("search", "compare", "detail"):
                 retrieve_result = await retrieve_rank_node(state)
                 state.update(retrieve_result)
                 candidates = state.get("candidates", [])
@@ -166,7 +166,7 @@ class AgentService:
                         for c in candidates
                     ]
                     yield _sse_event("rank", {"ranked": ranked})
-                    yield _sse_event("candidates", {"candidates": candidates})
+                    yield _sse_event("candidates", candidates)
 
             # 3. 流式 token（将检索到的候选人作为上下文传入，LLM 基于 RAG 结果回答）
             full_response = ""
@@ -174,28 +174,59 @@ class AgentService:
             intent_type = state.get("intent_type", "chitchat")
 
             # 构建回答 messages
-            if intent_type in ("search", "compare") and candidates:
-                from app.agent.prompts import SEARCH_RESPOND_PROMPT
-                system_prompt = (
-                    "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
-                    "1. 只能使用提供的候选人数据回答，绝对禁止编造不存在的候选人\n"
-                    "2. 不要生成'理想候选人简历描述'等虚构内容\n"
-                    "3. 用户要求N名候选人时，只展示前N名\n"
-                    "4. 用中文简洁回答，引用候选人姓名与核心技能\n"
-                )
-                user_prompt = SEARCH_RESPOND_PROMPT.format(
-                    query=query,
-                    candidates=json.dumps(candidates[:10], ensure_ascii=False),
-                )
+            if intent_type in ("search", "compare", "detail") and candidates:
+                from app.agent.prompts import SEARCH_RESPOND_PROMPT, DETAIL_PROMPT
+                if intent_type == "detail":
+                    target_candidate = None
+                    for c in candidates:
+                        cid = c.get("candidate_id", "")
+                        name = c.get("name", "")
+                        if (cid and cid in query) or (name and name in query):
+                            target_candidate = c
+                            break
+                    if target_candidate:
+                        system_prompt = (
+                            "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
+                            "1. 只能使用提供的候选人数据回答，绝对禁止编造信息\n"
+                            "2. 详细介绍该候选人的背景、技能、工作经验等\n"
+                            "3. 用中文专业简洁地回答\n"
+                        )
+                        user_prompt = DETAIL_PROMPT.format(
+                            query=query,
+                            candidate=json.dumps(target_candidate, ensure_ascii=False),
+                        )
+                    else:
+                        system_prompt = (
+                            "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
+                            "1. 只能使用提供的候选人数据回答，绝对禁止编造不存在的候选人\n"
+                            "2. 请列出候选人名单让用户选择想查看谁的详情\n"
+                            "3. 用中文简洁回答\n"
+                        )
+                        user_prompt = SEARCH_RESPOND_PROMPT.format(
+                            query=query,
+                            candidates=json.dumps(candidates[:10], ensure_ascii=False),
+                        )
+                else:
+                    system_prompt = (
+                        "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
+                        "1. 只能使用提供的候选人数据回答，绝对禁止编造不存在的候选人\n"
+                        "2. 不要生成'理想候选人简历描述'等虚构内容\n"
+                        "3. 用户要求N名候选人时，只展示前N名\n"
+                        "4. 用中文简洁回答，引用候选人姓名与核心技能\n"
+                    )
+                    user_prompt = SEARCH_RESPOND_PROMPT.format(
+                        query=query,
+                        candidates=json.dumps(candidates[:10], ensure_ascii=False),
+                    )
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
-            elif intent_type in ("search", "compare") and not candidates:
+            elif intent_type in ("search", "compare", "detail") and not candidates:
                 from app.agent.prompts import CLARIFY_PROMPT
                 clarify_prompt = CLARIFY_PROMPT.format(query=query)
                 messages = [
-                    {"role": "system", "content": "你是 TalentSense HR 招聘助手。没有检索到候选人时，明确告知用户当前库中没有匹配人员，并引导用户补充需求细节或上传更多简历。不要编造候选人。"},
+                    {"role": "system", "content": "你是 TalentSense HR 招聘助手。没有检索到候选人时，明确告知用户当前库中没有匹配人员，并引导用户补充需求细节（如技术栈、年限、学历等）或上传更多简历。不要编造候选人。"},
                     {"role": "user", "content": clarify_prompt},
                 ]
             elif intent_type == "chitchat":

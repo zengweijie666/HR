@@ -26,17 +26,27 @@
       {{ parseLabel }}
     </div>
 
-    <!-- 收藏星标 -->
-    <button
-      type="button"
-      class="resume-card__fav"
-      :class="{ 'is-active': resume.is_favorite }"
-      :aria-label="resume.is_favorite ? '取消收藏' : '收藏简历'"
-      @click.stop="handleToggleFav"
-    >
-      <el-icon v-if="resume.is_favorite"><StarFilled /></el-icon>
-      <el-icon v-else><Star /></el-icon>
-    </button>
+    <!-- 右上角操作区：收藏 + 删除 -->
+    <div class="resume-card__actions">
+      <button
+        type="button"
+        class="resume-card__fav"
+        :class="{ 'is-active': resume.is_favorite }"
+        :aria-label="resume.is_favorite ? '取消收藏' : '收藏简历'"
+        @click.stop="handleToggleFav"
+      >
+        <el-icon v-if="resume.is_favorite"><StarFilled /></el-icon>
+        <el-icon v-else><Star /></el-icon>
+      </button>
+      <button
+        type="button"
+        class="resume-card__del"
+        aria-label="删除简历"
+        @click.stop="handleDelete"
+      >
+        <el-icon><Delete /></el-icon>
+      </button>
+    </div>
 
     <!-- 顶部：姓名 + meta -->
     <header class="resume-card__head">
@@ -81,7 +91,7 @@
  * 展示单条简历摘要信息，可点击与收藏
  */
 import { computed } from 'vue'
-import { Star, StarFilled } from '@element-plus/icons-vue'
+import { Star, StarFilled, Delete } from '@element-plus/icons-vue'
 import { formatSalary } from '@/utils/format'
 import { PARSE_STATUS } from '@/utils/constant'
 import type { ResumeListItem } from '@/types/resume'
@@ -98,6 +108,8 @@ const emit = defineEmits<{
   (e: 'click', resumeId: string): void
   /** 切换收藏 */
   (e: 'toggle-favorite', resumeId: string): void
+  /** 删除简历 */
+  (e: 'delete', resumeId: string): void
 }>()
 
 /** 是否解析中（非完成状态） */
@@ -124,6 +136,11 @@ function handleClick(): void {
 /** 处理收藏切换 */
 function handleToggleFav(): void {
   emit('toggle-favorite', props.resume.resume_id)
+}
+
+/** 处理删除 */
+function handleDelete(): void {
+  emit('delete', props.resume.resume_id)
 }
 </script>
 
@@ -191,10 +208,16 @@ function handleToggleFav(): void {
     background: var(--color-ink-mute);
   }
 
-  &__fav {
+  &__actions {
     position: absolute;
     top: var(--space-4);
     right: var(--space-4);
+    display: flex;
+    gap: 4px;
+    z-index: 2;
+  }
+
+  &__fav {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -214,6 +237,30 @@ function handleToggleFav(): void {
       color: var(--color-accent);
     }
     &.is-active {
+      color: var(--color-coral);
+    }
+    .el-icon {
+      font-size: 18px;
+    }
+  }
+
+  &__del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--color-ink-mute);
+    border-radius: 50%;
+    transition: color var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
+
+    &:hover {
+      background-color: rgba(220, 53, 69, 0.1);
       color: var(--color-coral);
     }
     .el-icon {

@@ -99,7 +99,7 @@ class JdMatchService:
         """拉取候选人元数据 + 生成匹配理由
 
         入参:
-            candidate_ids: 候选人 ID 列表
+            candidate_ids: Milvus 返回的 ID 列表（Milvus candidate_id 字段存的是 resume_id）
             jd: 解析后的 JD 字典
             chunks: 检索 chunks（用于 rerank_score 回退）
         出参:
@@ -107,28 +107,32 @@ class JdMatchService:
         """
         if not candidate_ids or self.resumes_coll is None:
             return []
-        cursor = self.resumes_coll.find({"candidate_id": {"$in": candidate_ids}})
+        # Milvus 中 candidate_id 字段存的是 resume_id，用 resume_id 查询 MongoDB
+        cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
         docs = await cursor.to_list(length=len(candidate_ids))
         chunk_map = {c.get("candidate_id"): c for c in chunks}
 
         scored: list[dict] = []
         for doc in docs:
             cid = doc.get("candidate_id")
-            rerank_score = float(chunk_map.get(cid, {}).get("rerank_score", 0.0))
+            rid = doc.get("resume_id")
+            rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
             match_score = round(rerank_score * 100, 1)
             reason = await self._match_reason(jd, doc, match_score)
             scored.append({
                 "candidate_id": cid,
-                "resume_id": doc.get("resume_id"),
-                "name": doc.get("name", ""),
+                "resume_id": rid,
+                "name": doc.get("basic_info", {}).get("name", "") or doc.get("name", ""),
                 "work_years": doc.get("work_years", 0),
                 "education": doc.get("education", ""),
+                "education_level": doc.get("education_level", 0),
                 "skills": doc.get("skills", []),
                 "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
                 "match_score": match_score,
                 "reason": reason,
                 "tags": doc.get("tags", []),
                 "is_favorite": doc.get("is_favorite", False),
+                "summary": doc.get("summary", ""),
             })
         scored.sort(key=lambda x: x["match_score"], reverse=True)
         return scored

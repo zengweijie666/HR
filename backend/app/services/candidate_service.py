@@ -39,14 +39,15 @@ class CandidateService:
         dense, sparse = self.embedding.encode([query_text])
         chunks = await self.vector_store.hybrid_search(dense, sparse, {}, top_k=top_k + 1)
 
-        self_cid = doc.get("candidate_id")
-        candidate_ids = [
+        # Milvus candidate_id 字段存的是 resume_id
+        self_rid = resume_id
+        resume_ids = [
             c["candidate_id"] for c in chunks
-            if c.get("candidate_id") and c["candidate_id"] != self_cid
+            if c.get("candidate_id") and c["candidate_id"] != self_rid
         ][:top_k]
-        if not candidate_ids:
+        if not resume_ids:
             return []
-        cursor = self.resumes_coll.find({"candidate_id": {"$in": candidate_ids}})
+        cursor = self.resumes_coll.find({"resume_id": {"$in": resume_ids}})
         docs = await cursor.to_list(length=top_k)
         for d in docs:
             d.pop("_id", None)

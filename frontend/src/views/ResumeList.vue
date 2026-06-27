@@ -56,6 +56,7 @@
               :resume="resume"
               @click="handleClickResume"
               @toggle-favorite="handleToggleFavorite"
+              @delete="handleDeleteResume"
             />
           </div>
         </el-col>
@@ -92,7 +93,7 @@
  */
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Download } from '@element-plus/icons-vue'
 import FilterBar, { type ResumeFilters } from '@/components/resume/FilterBar.vue'
 import ResumeCard from '@/components/resume/ResumeCard.vue'
@@ -100,7 +101,7 @@ import UploadDialog from '@/components/resume/UploadDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingOverlay from '@/components/common/LoadingOverlay.vue'
 import { useResumeStore } from '@/stores/resume'
-import { getResumeList, toggleFavorite } from '@/api/resume'
+import { getResumeList, toggleFavorite, deleteResume } from '@/api/resume'
 import { exportExcel } from '@/api/candidate'
 import { downloadBlob, defaultFilename } from '@/utils/download'
 import type { ResumeListQuery } from '@/types/resume'
@@ -181,6 +182,32 @@ async function handleToggleFavorite(resumeId: string): Promise<void> {
     resumeStore.updateFavorite(resumeId, next)
   } catch (err) {
     const msg = err instanceof Error ? err.message : '收藏切换失败'
+    ElMessage.error(msg)
+  }
+}
+
+/**
+ * 处理删除简历（硬删除，弹确认框）
+ * @param resumeId 简历 ID
+ */
+async function handleDeleteResume(resumeId: string): Promise<void> {
+  const item = resumeStore.list.find((r) => r.resume_id === resumeId)
+  const name = item?.name || '该简历'
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除「${name}」吗？此操作不可恢复，将同时删除文件、解析数据和向量索引。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await deleteResume(resumeId)
+    ElMessage.success('删除成功')
+    await loadList()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '删除失败'
     ElMessage.error(msg)
   }
 }

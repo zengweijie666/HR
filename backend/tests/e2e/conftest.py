@@ -132,11 +132,11 @@ def e2e_env():
     reranker_mock = MagicMock()
     reranker_mock.rerank = MagicMock(return_value=[0.95, 0.80])
 
-    # VectorStore mock：返回预置候选人
+    # VectorStore mock：返回预置候选人（Milvus candidate_id 字段实际存的是 resume_id）
     vector_store_mock = AsyncMock()
     vector_store_mock.hybrid_search = AsyncMock(return_value=[
-        {"chunk_id": "ck1", "candidate_id": "cand_zhang", "score": 0.95, "parent_content": "Java 5年经验"},
-        {"chunk_id": "ck2", "candidate_id": "cand_li", "score": 0.80, "parent_content": "Python 3年经验"},
+        {"chunk_id": "ck1", "candidate_id": "res_demo_zhang", "score": 0.95, "parent_content": "Java 5年经验"},
+        {"chunk_id": "ck2", "candidate_id": "res_demo_li", "score": 0.80, "parent_content": "Python 3年经验"},
     ])
     vector_store_mock.insert = AsyncMock()
     vector_store_mock.delete_by_resume_id = AsyncMock()

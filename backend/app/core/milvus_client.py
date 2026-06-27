@@ -26,7 +26,7 @@ class MilvusClient:
             logger.info("Milvus 已连接")
 
     def ensure_collection(self):
-        """确保 Collection 存在，不存在则创建
+        """确保 Collection 存在且 schema 匹配，不存在或 schema 不匹配则（重建）创建
 
         Collection schema 对应 Backend-Design.md 3.4：
         - id: 子块主键
@@ -37,9 +37,28 @@ class MilvusClient:
         - skills_text/parent_id/parent_content: 父子块回溯
         """
         self.connect()
+        required_fields = {
+            "id", "candidate_id", "dense_vector", "sparse_vector",
+            "salary_min", "salary_max", "education_level", "work_years",
+            "skills_text", "parent_id", "parent_content",
+        }
         if utility.has_collection(settings.MILVUS_COLLECTION):
             self._collection = Collection(settings.MILVUS_COLLECTION)
-        else:
+            # 检查现有 schema 是否包含所有必需字段，不匹配则删除重建
+            existing_fields = {f.name for f in self._collection.schema.fields}
+            if not required_fields.issubset(existing_fields):
+                logger.warning(
+                    f"Milvus Collection schema 不匹配（现有 {len(existing_fields)} 字段，"
+                    f"缺少 {required_fields - existing_fields}），删除重建"
+                )
+                utility.drop_collection(settings.MILVUS_COLLECTION)
+                self._collection = None
+            else:
+                logger.info(f"Milvus Collection 已就绪（schema 匹配）")
+                self._collection.load()
+                return
+
+        if self._collection is None:
             fields = [
                 FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=64, is_primary=True),
                 FieldSchema(name="candidate_id", dtype=DataType.VARCHAR, max_length=64),
