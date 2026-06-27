@@ -39,6 +39,12 @@ export interface EducationDetail {
   end_date: string
 }
 
+export interface ProjectItem {
+  name: string
+  role: string
+  description: string
+}
+
 export interface InterviewNoteItem {
   note_id: string
   interviewer: string
@@ -59,6 +65,7 @@ export interface ResumeDetail extends ResumeListItem {
   }
   work_experience: WorkExperience[]
   education_detail: EducationDetail[]
+  projects?: ProjectItem[]
   summary: string
   file_info: { file_name: string; file_type: string; file_size?: number }
   parse_info: { parse_status: string; parse_time?: string }

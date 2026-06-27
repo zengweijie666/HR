@@ -75,6 +75,28 @@
               </el-timeline>
             </div>
 
+            <!-- 项目经历 -->
+            <div v-if="detail.projects?.length" class="detail-card__section">
+              <h3 class="detail-card__section-title decor-line">项目经历</h3>
+              <el-timeline class="detail-card__timeline">
+                <el-timeline-item
+                  v-for="(proj, idx) in detail.projects"
+                  :key="`proj-${idx}`"
+                  placement="top"
+                >
+                  <div class="detail-card__work">
+                    <div class="detail-card__work-head">
+                      <span class="detail-card__work-company">{{ proj.name }}</span>
+                      <span v-if="proj.role" class="detail-card__work-position">{{ proj.role }}</span>
+                    </div>
+                    <p v-if="proj.description" class="detail-card__work-desc">
+                      {{ proj.description }}
+                    </p>
+                  </div>
+                </el-timeline-item>
+              </el-timeline>
+            </div>
+
             <!-- 教育经历 -->
             <div v-if="detail.education_detail?.length" class="detail-card__section">
               <h3 class="detail-card__section-title decor-line">教育经历</h3>

@@ -42,6 +42,13 @@ const detailMock = {
   },
   work_experience: [],
   education_detail: [],
+  projects: [
+    {
+      name: 'HR 招聘系统',
+      role: '前端负责人',
+      description: '基于 Vue3 + FastAPI 的招聘管理平台，负责简历解析与检索模块。',
+    },
+  ],
   summary: '5 年前端经验，精通 Vue 全家桶。',
   file_info: { file_name: 'resume.pdf', file_type: 'pdf' },
   parse_info: { parse_status: 'completed' },
@@ -101,5 +108,15 @@ describe('views/ResumeDetail', () => {
     await flushPromises()
     expect(wrapper.find('.detail-card__summary').exists()).toBe(true)
     expect(wrapper.find('.detail-card__summary-text').text()).toContain('5 年前端经验')
+  })
+
+  it('渲染项目经历分区（名称/角色/描述）', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    const titles = wrapper.findAll('.detail-card__section-title').map((n) => n.text())
+    expect(titles).toContain('项目经历')
+    expect(wrapper.find('.detail-card__work-company').text()).toBe('HR 招聘系统')
+    expect(wrapper.find('.detail-card__work-position').text()).toBe('前端负责人')
+    expect(wrapper.find('.detail-card__work-desc').text()).toContain('Vue3 + FastAPI')
   })
 })
