@@ -145,6 +145,31 @@ async def test_list_search_includes_tags(svc):
     assert any("tags" in cond for cond in or_conditions), f"关键词搜索应包含 tags 字段, 实际: {or_conditions}"
 
 
+@pytest.mark.asyncio
+async def test_parse_and_index_stores_raw_phone_email(svc):
+    """解析完成后 basic_info 应同时存储原始 phone/email 和 masked 字段"""
+    # mock _extract_text 返回有效文本
+    svc._extract_text = MagicMock(return_value="张三 13800138000 zhangsan@test.com")
+    svc.llm.chat = AsyncMock(return_value='{"name":"张三","phone":"13800138000","email":"zhangsan@test.com","skills":[],"work_experience":[],"education_detail":[],"projects":[]}')
+    svc.dedup_checker = AsyncMock()
+    svc.dedup_checker.check = AsyncMock(return_value=None)
+    svc.embedding.encode = MagicMock(return_value=([[0.1]], [[0.2]]))
+    svc.vector_store.insert = AsyncMock()
+
+    await svc._parse_and_index("res_new", b"pdf", "minio_xxx", "test.pdf", overwrite=False)
+
+    # 验证存储的 basic_info 包含原始值和 masked 值
+    args = svc.resumes_coll.update_one.call_args
+    set_data = args.kwargs["update"]["$set"]
+    basic_info = set_data["basic_info"]
+    assert basic_info["phone"] == "13800138000"
+    assert basic_info["email"] == "zhangsan@test.com"
+    assert basic_info["phone_masked"]  # masked 也存在
+    assert basic_info["email_masked"]  # masked 也存在
+    assert basic_info["phone_hash"]    # hash 保留用于去重
+    assert basic_info["email_hash"]
+
+
 def test_extract_projects_from_text():
     """正则兜底提取项目经历"""
     from app.services.resume_service import _extract_projects_from_text

@@ -204,6 +204,8 @@ class ResumeService:
                 update={"$set": {
                     "basic_info": {
                         "name": structured.get("name", ""),
+                        "phone": structured.get("phone", ""),
+                        "email": structured.get("email", ""),
                         "phone_masked": mask_phone(structured.get("phone", "")),
                         "email_masked": mask_email(structured.get("email", "")),
                         "phone_hash": phone_h, "email_hash": email_h,
