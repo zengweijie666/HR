@@ -409,6 +409,8 @@ class ResumeService:
     async def list(self, page: int = 1, page_size: int = 20, keyword: str = None, tag: str = None,
                    is_favorite: bool = None, education_min: int = None, work_years_min: int = None,
                    salary_min: int = None, salary_max: int = None, status: str = None,
+                   date_from: str = None, date_to: str = None,
+                   sort_by: str = "created_at", sort_order: str = "desc",
                    current_user: dict = None) -> dict:
         """AC3.1-3.8: 分页列表查询（根据 current_user.role 返回原始/脱敏手机邮箱）
 
@@ -422,6 +424,10 @@ class ResumeService:
             work_years_min: 最低工作年限
             salary_min / salary_max: 薪资区间
             status: 解析状态过滤
+            date_from: 入库开始日期（ISO 格式 YYYY-MM-DD）
+            date_to: 入库结束日期（ISO 格式 YYYY-MM-DD）
+            sort_by: 排序字段（created_at/work_years/education_level）
+            sort_order: 排序方向（asc/desc）
             current_user: 当前用户（含 role 字段），决定返回原始/脱敏手机邮箱
         出参:
             {"list", "total", "page", "page_size", "total_pages"}
@@ -447,9 +453,20 @@ class ResumeService:
             query["expected_salary.min"] = {"$lte": salary_max}
         if status:
             query["parse_info.parse_status"] = status
+        # 日期范围筛选（自动交换倒序日期）
+        if date_from and date_to and date_from > date_to:
+            date_from, date_to = date_to, date_from
+        if date_from:
+            query["created_at"] = {"$gte": date_from}
+        if date_to:
+            query.setdefault("created_at", {})["$lte"] = date_to + "T23:59:59"
         total = await self.resumes_coll.count_documents(query)
         skip = (page - 1) * page_size
-        cursor = self.resumes_coll.find(query, {"_id": 0}).skip(skip).limit(page_size).sort("created_at", -1)
+        # sort_by 白名单校验，非法值兜底为 created_at
+        ALLOWED_SORT_FIELDS = {"created_at", "work_years", "education_level"}
+        safe_sort_by = sort_by if sort_by in ALLOWED_SORT_FIELDS else "created_at"
+        safe_sort_order = 1 if sort_order == "asc" else -1
+        cursor = self.resumes_coll.find(query, {"_id": 0}).skip(skip).limit(page_size).sort(safe_sort_by, safe_sort_order)
         raw_items = await cursor.to_list(length=page_size)
         # 扁平化：前端 ResumeListItem 期望 name/gender/age/location/parse_status 在顶层
         items = [self._flatten_for_list(it, current_user) for it in raw_items]

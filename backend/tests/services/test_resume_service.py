@@ -286,6 +286,61 @@ async def test_list_falls_back_to_masked_for_old_resumes(svc):
 
 
 @pytest.mark.asyncio
+async def test_list_filter_by_date_range(svc):
+    """date_from/date_to 正确加入查询条件"""
+    svc.resumes_coll.find = _mock_find_returning([])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=0)
+
+    await svc.list(date_from="2026-06-01", date_to="2026-06-30")
+
+    find_args = svc.resumes_coll.find.call_args
+    query = find_args.args[0]
+    assert "created_at" in query
+    assert query["created_at"]["$gte"] == "2026-06-01"
+    assert query["created_at"]["$lte"] == "2026-06-30T23:59:59"
+
+
+@pytest.mark.asyncio
+async def test_list_sort_by_work_years(svc):
+    """sort_by=work_years 时正确传给 MongoDB sort"""
+    svc.resumes_coll.find = _mock_find_returning([])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=0)
+
+    await svc.list(sort_by="work_years", sort_order="desc")
+
+    # 验证 cursor.sort 被调用（链路: find().skip().limit().sort()）
+    mock_cursor = svc.resumes_coll.find.return_value.skip.return_value.limit.return_value
+    mock_cursor.sort.assert_called_with("work_years", -1)
+
+
+@pytest.mark.asyncio
+async def test_list_invalid_sort_by_defaults_to_created_at(svc):
+    """非法 sort_by 兜底为 created_at"""
+    svc.resumes_coll.find = _mock_find_returning([])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=0)
+
+    await svc.list(sort_by="malicious_field")
+
+    mock_cursor = svc.resumes_coll.find.return_value.skip.return_value.limit.return_value
+    mock_cursor.sort.assert_called_with("created_at", -1)
+
+
+@pytest.mark.asyncio
+async def test_list_invalid_date_range_swapped(svc):
+    """date_from > date_to 时自动交换"""
+    svc.resumes_coll.find = _mock_find_returning([])
+    svc.resumes_coll.count_documents = AsyncMock(return_value=0)
+
+    await svc.list(date_from="2026-06-30", date_to="2026-06-01")
+
+    find_args = svc.resumes_coll.find.call_args
+    query = find_args.args[0]
+    # 交换后 $gte 应该是较早的日期
+    assert query["created_at"]["$gte"] == "2026-06-01"
+    assert query["created_at"]["$lte"] == "2026-06-30T23:59:59"
+
+
+@pytest.mark.asyncio
 async def test_parse_and_index_stores_raw_phone_email(svc):
     """解析完成后 basic_info 应同时存储原始 phone/email 和 masked 字段"""
     # mock _extract_text 返回有效文本
