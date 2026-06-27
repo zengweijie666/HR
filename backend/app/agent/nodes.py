@@ -30,7 +30,7 @@ async def intent_node(state: AgentState) -> dict:
     入参:
         state: AgentState（需含 query / history）
     出参:
-        {"intent": "chitchat"|"search"|"detail"|"compare"}
+        {"intent": "chitchat"|"search"|"detail"|"compare"|"qa"}
     """
     prompt = INTENT_PROMPT.format(
         query=state["query"], history=str(state.get("history", [])[-5:])
@@ -38,11 +38,11 @@ async def intent_node(state: AgentState) -> dict:
     try:
         result = await llm_client.chat([{"role": "user", "content": prompt}])
         intent = result.strip().lower()
-        if intent not in ("chitchat", "search", "detail", "compare"):
-            intent = "chitchat"
+        if intent not in ("chitchat", "search", "detail", "compare", "qa"):
+            intent = "qa"  # 兜底改为 qa，让兜底也能通用回答
     except Exception as e:
-        logger.warning(f"意图识别失败，兜底 chitchat: {e}")
-        intent = "chitchat"
+        logger.warning(f"意图识别失败，兜底 qa: {e}")
+        intent = "qa"
     logger.info(f"意图识别: {intent}")
     return {"intent_type": intent}
 

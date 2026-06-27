@@ -86,3 +86,33 @@ async def test_respond_node_chitchat():
         state["intent_type"] = "chitchat"
         result = await respond_node(state)
         assert result["response"] != ""
+
+
+@pytest.mark.asyncio
+async def test_intent_node_returns_qa():
+    """AC11.1: 意图识别 - qa 通用问答（HR 知识/系统使用/通用问答）"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="qa")
+        state = make_state(query="HR 怎么筛选候选人", session_id="s1")
+        result = await intent_node(state)
+        assert result["intent_type"] == "qa"
+
+
+@pytest.mark.asyncio
+async def test_intent_node_fallback_to_qa_on_invalid():
+    """意图识别返回非法值时应兜底为 qa（而非 chitchat）"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="invalid_intent")
+        state = make_state(query="测试", session_id="s1")
+        result = await intent_node(state)
+        assert result["intent_type"] == "qa"
+
+
+@pytest.mark.asyncio
+async def test_intent_node_fallback_to_qa_on_exception():
+    """意图识别 LLM 调用异常时应兜底为 qa"""
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(side_effect=Exception("LLM 调用失败"))
+        state = make_state(query="测试", session_id="s1")
+        result = await intent_node(state)
+        assert result["intent_type"] == "qa"
