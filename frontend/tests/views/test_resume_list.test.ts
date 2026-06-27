@@ -86,4 +86,10 @@ describe('views/ResumeList', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('暂无简历，点击上传')
   })
+
+  it('渲染列表总数统计文案', async () => {
+    const wrapper = mount(ResumeList)
+    await flushPromises()
+    expect(wrapper.find('.page-resume-list__stats').exists()).toBe(true)
+  })
 })

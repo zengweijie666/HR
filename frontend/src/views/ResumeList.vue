@@ -24,6 +24,9 @@
     <div class="page-resume-list__toolbar">
       <FilterBar class="page-resume-list__filter" @search="handleSearch" @reset="handleReset" />
       <div class="page-resume-list__actions">
+        <div class="page-resume-list__stats">
+          共 <strong>{{ resumeStore.total }}</strong> 份简历
+        </div>
         <el-button type="primary" class="upload-btn" @click="uploadVisible = true">
           <el-icon><Upload /></el-icon>
           上传简历
@@ -67,14 +70,16 @@
     </div>
 
     <!-- 分页 -->
-    <div v-if="resumeStore.total > pageSize" class="page-resume-list__pagination">
+    <div v-if="resumeStore.total > 0" class="page-resume-list__pagination">
       <el-pagination
         background
-        layout="prev, pager, next, total"
+        layout="total, sizes, prev, pager, next"
         :total="resumeStore.total"
         :page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
         :current-page="page"
         @current-change="handlePageChange"
+        @size-change="handleSizeChange"
       />
     </div>
 
@@ -177,6 +182,16 @@ function handlePageChange(p: number): void {
 }
 
 /**
+ * 处理分页大小变化
+ * @param size 新的每页条数
+ */
+function handleSizeChange(size: number): void {
+  pageSize.value = size
+  page.value = 1
+  void loadList()
+}
+
+/**
  * 处理点击简历卡片
  * @param resumeId 简历 ID
  */
@@ -243,12 +258,13 @@ function handleSelectionChange(): void {
 
 /**
  * 处理发送邮件（从卡片触发）
- * 预填候选人姓名作为模板变量
+ * 预填收件人邮箱和候选人姓名作为模板变量
  * @param resumeId 简历 ID
  */
 function handleSendEmail(resumeId: string): void {
   const item = resumeStore.list.find((r) => r.resume_id === resumeId)
   sendEmailDialogRef.value?.open({
+    to_email: item?.email || item?.email_masked || '',
     variables: {
       candidate_name: item?.name ?? '',
     },
@@ -401,6 +417,20 @@ onUnmounted(() => {
 
     .el-button {
       height: 100%;
+    }
+  }
+
+  &__stats {
+    display: flex;
+    align-items: center;
+    font-size: var(--text-sm);
+    color: var(--color-ink-soft);
+    margin-right: var(--space-2);
+
+    strong {
+      color: var(--color-primary);
+      font-weight: 600;
+      margin: 0 4px;
     }
   }
 
