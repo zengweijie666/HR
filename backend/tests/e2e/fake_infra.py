@@ -193,6 +193,7 @@ class FakeMongoDB:
         self.chat_messages = FakeCollection("chat_messages")
         self.interview_notes = FakeCollection("interview_notes")
         self.email_config = FakeCollection("email_config")
+        self.email_templates = FakeCollection("email_templates")
 
 
 class FakeRedis:

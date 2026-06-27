@@ -24,8 +24,8 @@ def test_page_result():
 
 
 def test_login_request():
-    r = LoginRequest(username="admin", password="123")
-    assert r.username == "admin"
+    r = LoginRequest(email="a@b.com", password="123")
+    assert r.email == "a@b.com"
 
 
 def test_token_response():

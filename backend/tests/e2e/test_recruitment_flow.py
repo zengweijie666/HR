@@ -36,7 +36,7 @@ def test_01_login(e2e_env):
     """步骤1: HR 登录获取 token"""
     client = e2e_env["client"]
     r = client.post("/api/v1/auth/login", json={
-        "username": "admin",
+        "email": "admin@talentsense.com",
         "password": "admin123",
     })
     assert r.status_code == 200
@@ -52,7 +52,7 @@ def test_02_login_wrong_password(e2e_env):
     """步骤1b: 错误密码登录失败"""
     client = e2e_env["client"]
     r = client.post("/api/v1/auth/login", json={
-        "username": "admin",
+        "email": "admin@talentsense.com",
         "password": "wrong",
     })
     body = r.json()
@@ -404,19 +404,18 @@ def test_23_export_excel(e2e_env):
 
 
 def test_24_send_email(e2e_env):
-    """步骤13: 发送推荐邮件"""
+    """步骤13: 发送邮件（自定义主题+正文）"""
     client = e2e_env["client"]
     token = e2e_env["state"]["token"]
     r = client.post("/api/v1/email/send", json={
         "to_email": "boss@talentsense.com",
-        "candidate_ids": ["cand_zhang", "cand_li"],
-        "job_title": "Java 高级工程师",
+        "custom_subject": "候选人推荐 - Java 高级工程师",
+        "custom_body": "<html><body><p>推荐张三、李四</p></body></html>",
     }, headers=_auth_header(token))
     assert r.status_code == 200
     body = r.json()
     assert body["code"] == 0
     assert body["data"]["status"] == "success"
-    assert body["data"]["sent_count"] == 2
     e2e_env["aiosmtp_send_mock"].assert_called_once()
 
 

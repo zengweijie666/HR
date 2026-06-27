@@ -42,7 +42,7 @@ def test_create_user_api():
         instance.create_user = AsyncMock(return_value={"user_id": "u2", "username": "new", "status": "approved"})
         with _admin_auth_patch():
             client = TestClient(app, raise_server_exceptions=False)
-            r = client.post("/api/v1/users", json={"username": "new", "password": "Pass1234", "role": "hr"}, headers={"Authorization": "Bearer fake"})
+            r = client.post("/api/v1/users", json={"username": "new", "password": "Pass1234", "role": "hr", "email": "new@t.com", "name": "新用户"}, headers={"Authorization": "Bearer fake"})
             body = r.json()
             assert r.status_code == 200
             assert body["data"]["username"] == "new"

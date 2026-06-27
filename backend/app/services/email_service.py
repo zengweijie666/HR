@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.core.database import MongoDB
 from app.core.logger import logger
+from app.services.email_template_service import EmailTemplateService
 
 
 def encrypt(plain: str) -> str:
@@ -108,6 +109,103 @@ class EmailService:
             )
             logger.info(f"邮件已发送到 {to_email}, 候选人数={len(candidates)}")
             return {"status": "success", "sent_count": len(candidates)}
+        except Exception as e:
+            logger.error(f"邮件发送失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def send_mail(self, to_email: str, template_id: str | None = None,
+                        custom_subject: str | None = None, custom_body: str | None = None,
+                        variables: dict | None = None) -> dict:
+        """发送邮件（模板或自定义）
+
+        入参:
+            to_email: 收件人
+            template_id: 模板 ID（与 custom_subject/custom_body 二选一）
+            custom_subject: 自定义主题
+            custom_body: 自定义正文
+            variables: 模板变量
+        出参:
+            {"status": "success"|"error", "message": "..."}
+        """
+        # 校验参数
+        if not template_id and not (custom_subject and custom_body):
+            return {"status": "error", "message": "需提供 template_id 或 custom_subject+custom_body"}
+
+        # 获取 SMTP 配置
+        config = await self._get_smtp_config()
+        if not config:
+            return {"status": "error", "message": "未配置 SMTP"}
+
+        # 决定 subject / body
+        variables = variables or {}
+        if template_id:
+            try:
+                subject, body = await EmailTemplateService().render_template(template_id, variables)
+            except Exception as e:
+                return {"status": "error", "message": f"模板渲染失败: {e}"}
+        else:
+            subject, body = custom_subject, custom_body
+
+        return await self._smtp_send(config, to_email, subject, body)
+
+    async def send_test(self, to_email: str) -> dict:
+        """发送测试邮件
+
+        入参:
+            to_email: 测试收件人
+        出参:
+            {"status": "success"|"error", "message": "..."}
+        """
+        config = await self._get_smtp_config()
+        if not config:
+            return {"status": "error", "message": "未配置 SMTP"}
+        subject = "TalentSense HR - 测试邮件"
+        body = "<html><body><h2>SMTP 配置测试</h2><p>这封邮件由 TalentSense HR 系统发送，用于验证 SMTP 配置是否正确。</p></body></html>"
+        return await self._smtp_send(config, to_email, subject, body)
+
+    async def _get_smtp_config(self) -> dict | None:
+        """获取 SMTP 配置（解密密码）
+
+        出参:
+            {"smtp_host", "smtp_port", "smtp_user", "smtp_password"} 或 None
+        """
+        if self.config_coll is None:
+            return None
+        config = await self.config_coll.find_one({"_id": "default"})
+        if not config:
+            return None
+        return {
+            "smtp_host": config["smtp_host"],
+            "smtp_port": config["smtp_port"],
+            "smtp_user": config["smtp_user"],
+            "smtp_password": decrypt(config["smtp_password_encrypted"]),
+        }
+
+    async def _smtp_send(self, config: dict, to_email: str, subject: str, body: str) -> dict:
+        """实际 SMTP 发送
+
+        入参:
+            config: SMTP 配置（含解密后的密码）
+            to_email: 收件人
+            subject: 主题
+            body: HTML 正文
+        出参:
+            {"status": "success"|"error", "message": "..."}
+        """
+        msg = MIMEMultipart("alternative")
+        msg["From"] = config["smtp_user"]
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "html"))
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=config["smtp_host"], port=config["smtp_port"],
+                username=config["smtp_user"], password=config["smtp_password"],
+                use_tls=config["smtp_port"] == 465,
+            )
+            logger.info(f"邮件已发送到 {to_email}, subject={subject}")
+            return {"status": "success", "message": "发送成功"}
         except Exception as e:
             logger.error(f"邮件发送失败: {e}")
             return {"status": "error", "message": str(e)}

@@ -80,6 +80,13 @@ async def lifespan(app: FastAPI):
             logger.info(f"管理员账号 {admin_username} 已自动创建")
     except Exception as e:
         logger.warning(f"管理员初始化失败: {e}")
+    # 初始化预置邮件模板
+    try:
+        from app.core.email_templates_seed import seed_builtin_templates
+        await seed_builtin_templates(MongoDB.db)
+        logger.info("预置邮件模板已就绪")
+    except Exception as e:
+        logger.warning(f"预置邮件模板初始化失败: {e}")
     # 重置遗留的 parsing 状态（进程上次崩溃会导致简历永久卡 parsing）
     try:
         await MongoDB.db.resumes.update_many(

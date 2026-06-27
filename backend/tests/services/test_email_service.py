@@ -50,6 +50,68 @@ async def test_send_recommendation_no_config(svc):
 
 
 @pytest.mark.asyncio
+async def test_send_mail_by_template(svc):
+    """通过模板 ID 发送邮件"""
+    svc.config_coll.find_one = AsyncMock(return_value={
+        "smtp_host": "smtp.x.com", "smtp_port": 465,
+        "smtp_user": "hr@x.com", "smtp_password_encrypted": "enc"
+    })
+    with patch("app.services.email_service.EmailTemplateService.render_template",
+               AsyncMock(return_value=("面试邀请", "<p>正文</p>"))), \
+         patch("app.services.email_service.aiosmtplib.send", AsyncMock()), \
+         patch("app.services.email_service.decrypt", return_value="pwd"):
+        result = await svc.send_mail(
+            to_email="cand@x.com", template_id="t1",
+            variables={"candidate_name": "张三", "position": "Java"}
+        )
+        assert result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_send_mail_custom(svc):
+    """自定义主题和正文发送"""
+    svc.config_coll.find_one = AsyncMock(return_value={
+        "smtp_host": "smtp.x.com", "smtp_port": 465,
+        "smtp_user": "hr@x.com", "smtp_password_encrypted": "enc"
+    })
+    with patch("app.services.email_service.aiosmtplib.send", AsyncMock()), \
+         patch("app.services.email_service.decrypt", return_value="pwd"):
+        result = await svc.send_mail(
+            to_email="cand@x.com", custom_subject="自定义主题", custom_body="<p>自定义正文</p>"
+        )
+        assert result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_send_mail_no_subject_or_template(svc):
+    """既没传 template_id 也没传 custom_subject 应报错"""
+    result = await svc.send_mail(to_email="cand@x.com")
+    assert result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_send_test_mail(svc):
+    """发送测试邮件"""
+    svc.config_coll.find_one = AsyncMock(return_value={
+        "smtp_host": "smtp.x.com", "smtp_port": 465,
+        "smtp_user": "hr@x.com", "smtp_password_encrypted": "enc"
+    })
+    with patch("app.services.email_service.aiosmtplib.send", AsyncMock()), \
+         patch("app.services.email_service.decrypt", return_value="pwd"):
+        result = await svc.send_test(to_email="admin@x.com")
+        assert result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_send_mail_smtp_not_configured(svc):
+    """未配置 SMTP 返回错误"""
+    svc.config_coll.find_one = AsyncMock(return_value=None)
+    result = await svc.send_mail(to_email="x@y.com", custom_subject="s", custom_body="b")
+    assert result["status"] == "error"
+    assert "SMTP" in result["message"] or "未配置" in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_get_config(svc):
     """AC18.1: 获取 SMTP 配置（脱敏）"""
     svc.config_coll.find_one = AsyncMock(return_value={
