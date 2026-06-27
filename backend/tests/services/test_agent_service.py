@@ -127,3 +127,40 @@ async def test_send_message_stream_qa_branch_skips_retrieval(svc):
     # 不应有 retrieval/candidates 事件
     assert "retrieval" not in event_types, "qa 分支不应有 retrieval 事件"
     assert "candidates" not in event_types, "qa 分支不应有 candidates 事件"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_empty_yields_candidates_event(svc):
+    """检索返回空列表时仍应 yield candidates 事件（空数组），便于前端区分'没触发检索'和'检索为空'"""
+    svc.sessions_coll.find_one = AsyncMock(return_value={
+        "session_id": "s1", "messages": [], "user_id": "u1"
+    })
+
+    async def mock_retrieve(state):
+        return {**state, "candidates": []}  # 空列表
+
+    with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "search"})), \
+         patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
+         patch("app.services.agent_service.llm_client") as mock_llm, \
+         patch.object(svc, "_save_message", AsyncMock()):
+
+        async def fake_stream(*args, **kwargs):
+            yield "未找到匹配候选人"
+
+        mock_llm.chat_stream = fake_stream
+        events = []
+        async for sse_str in svc.send_message_stream(
+            session_id="s1", user_id="u1", query="推荐不存在的岗位"
+        ):
+            events.append(sse_str)
+            if len(events) > 50:
+                break
+
+    # 应包含 candidates 事件（即使为空数组）
+    candidates_events = [e for e in events if e.startswith("event: candidates")]
+    assert len(candidates_events) > 0, "检索为空也应 yield candidates 事件"
+    # 解析 data 验证为空数组
+    import json as _json
+    data_line = [l for l in candidates_events[0].split("\n") if l.startswith("data: ")][0]
+    payload = _json.loads(data_line[6:])
+    assert payload == [], f"candidates 事件 data 应为空数组，实际: {payload}"

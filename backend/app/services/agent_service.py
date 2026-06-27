@@ -162,7 +162,7 @@ class AgentService:
                 "strategy": state.get("strategy"),
             })
 
-            # 2. 检索事件（所有非 chitchat 意图都需要检索：search/compare/detail）
+            # 2. 检索事件（所有非 chitchat/qa 意图都需要检索：search/compare/detail）
             intent_type = state.get("intent_type")
             if intent_type in ("search", "compare", "detail"):
                 retrieve_result = await retrieve_rank_node(state)
@@ -178,7 +178,8 @@ class AgentService:
                         for c in candidates
                     ]
                     yield _sse_event("rank", {"ranked": ranked})
-                    yield _sse_event("candidates", candidates)
+                # 无论是否为空都 yield candidates 事件，便于前端区分'没触发检索'和'检索为空'
+                yield _sse_event("candidates", candidates)
 
             # 3. 流式 token（将检索到的候选人作为上下文传入，LLM 基于 RAG 结果回答）
             full_response = ""
