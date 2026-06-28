@@ -214,9 +214,14 @@ class SearchService:
         异常兜底:
             - LLM 调用失败（网络/超时）→ 4 维度全部回退 rerank_score*100
             - LLM 返回但 JSON 解析失败 → 全 0 + reason="评分暂不可用"
+        设计:
+            - overall 始终用代码加权计算（0.4*skill + 0.3*experience + 0.2*education + 0.1*salary），
+              不信任 LLM 的 overall，避免 LLM 评分趋同导致无区分度
+            - 候选人只传关键字段（姓名/年限/学历/技能/项目/工作经历），避免无关字段干扰
         """
+        brief = self._build_candidate_brief(candidate)
         try:
-            prompt = SCORE_PROMPT.format(query=query, candidate=str(candidate))
+            prompt = SCORE_PROMPT.format(query=query, candidate=brief)
             resp = await llm_client.chat(
                 [{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
@@ -229,7 +234,7 @@ class SearchService:
                 "experience": fallback,
                 "education": fallback,
                 "salary": fallback,
-                "overall": fallback,
+                "overall": round(fallback),
                 "reason": "基于语义相似度匹配",
             }
 
@@ -241,15 +246,14 @@ class SearchService:
                 "experience": float(data.get("experience", 0)),
                 "education": float(data.get("education", 0)),
                 "salary": float(data.get("salary", 0)),
-                "overall": float(data.get("overall", 0)),
                 "reason": data.get("reason", "评分暂不可用"),
             }
-            # overall 兜底加权计算
-            if result["overall"] == 0:
-                result["overall"] = (
-                    0.3 * result["skill"] + 0.3 * result["experience"]
-                    + 0.2 * result["education"] + 0.2 * result["salary"]
-                )
+            # overall 始终用代码加权计算，确保不同候选人评分有区分度
+            # 权重：技能 40% + 经验 30% + 学历 20% + 薪资 10%
+            result["overall"] = round(
+                0.4 * result["skill"] + 0.3 * result["experience"]
+                + 0.2 * result["education"] + 0.1 * result["salary"]
+            )
             return result
         except Exception as e:
             logger.warning(f"LLM 评分 JSON 解析失败，全 0 兜底: {e}")
@@ -261,6 +265,47 @@ class SearchService:
                 "overall": 0,
                 "reason": "评分暂不可用",
             }
+
+    @staticmethod
+    def _build_candidate_brief(candidate: dict) -> str:
+        """提取候选人关键字段供 LLM 评分，过滤无关字段避免干扰
+
+        入参:
+            candidate: MongoDB 候选人文档（含 basic_info/skills/work_experience 等全量字段）
+        出参:
+            精简后的候选人描述字符串，包含：姓名/工作年限/学历/技能/工作经历/项目/总结
+        """
+        basic = candidate.get("basic_info", {}) or {}
+        name = basic.get("name", "") or candidate.get("name", "")
+        work_years = candidate.get("work_years", 0)
+        education = candidate.get("education", "")
+        skills = candidate.get("skills", []) or []
+
+        # 工作经历：公司/岗位（最多3条）
+        work_exp = candidate.get("work_experience", []) or []
+        work_desc = "; ".join([
+            f"{w.get('company', '')}/{w.get('position', '')}"
+            for w in work_exp[:3]
+            if w.get("company") or w.get("position")
+        ])
+
+        # 项目经历：名称+描述（最多3条，每条截断100字）
+        projects = candidate.get("projects", []) or []
+        project_desc = "; ".join([
+            f"{p.get('name', '')}: {(p.get('description', '') or '')[:100]}"
+            for p in projects[:3]
+            if p.get("name")
+        ])
+
+        summary = (candidate.get("summary", "") or "")[:150]
+
+        return (
+            f"姓名:{name}, 工作年限:{work_years}年, 学历:{education}, "
+            f"技能:{skills}, "
+            f"工作经历:{work_desc}, "
+            f"项目:{project_desc}, "
+            f"总结:{summary}"
+        )
 
     async def _llm_reason(self, query: str, candidate: dict, score: float) -> str:
         """LLM 生成推荐理由（保留向后兼容，新流程已由 _llm_score_multi 提供 reason）

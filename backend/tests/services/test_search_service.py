@@ -94,7 +94,11 @@ async def test_search_rerank_order(svc):
 
 @pytest.mark.asyncio
 async def test_llm_score_multi_json_parse():
-    """_llm_score_multi 正常 JSON 解析应返回 4 维度 + overall + reason"""
+    """_llm_score_multi 正常 JSON 解析应返回 4 维度 + overall + reason
+
+    overall 由代码加权计算（0.4*skill + 0.3*experience + 0.2*education + 0.1*salary），
+    不再信任 LLM 返回的 overall，避免评分趋同。
+    """
     svc = SearchService()
     with patch("app.services.search_service.llm_client") as mock_llm:
         mock_llm.chat = AsyncMock(return_value=json.dumps({
@@ -106,7 +110,8 @@ async def test_llm_score_multi_json_parse():
     assert result["experience"] == 70
     assert result["education"] == 90
     assert result["salary"] == 60
-    assert result["overall"] == 78
+    # overall = 0.4*85 + 0.3*70 + 0.2*90 + 0.1*60 = 34+21+18+6 = 79
+    assert result["overall"] == 79
     assert result["reason"] == "技能高度匹配"
 
 
@@ -192,3 +197,133 @@ async def test_search_nlp_recalls_bert_candidate_via_synonym_expand(svc):
 
     # 验证：vector_store 被调用了两次（多查询检索）
     assert svc.vector_store.hybrid_search.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_score_differentiation_between_senior_and_junior():
+    """AC: 同需求下 4年经验资深候选人 overall 必须高于 0年经验应届生
+
+    业务场景: 搜索 NLP 工程师，毛光铭(4年NLP经验)应远高于苏威(0年应届生)。
+    之前问题: LLM 给所有候选人都打 78 分，无区分度。
+    修复: overall 用代码加权计算，且 SCORE_PROMPT 强制要求 experience 维度按年限拉开差距。
+    """
+    svc = SearchService()
+
+    # 模拟 LLM 对 4年经验资深候选人的评分（高 skill + 高 experience）
+    senior_resp = json.dumps({
+        "skill": 92, "experience": 90, "education": 75, "salary": 85,
+        "overall": 99, "reason": "4年NLP对口经验，技能完全覆盖"
+    })
+    # 模拟 LLM 对 0年经验应届生的评分（中等 skill + 低 experience）
+    junior_resp = json.dumps({
+        "skill": 72, "experience": 50, "education": 75, "salary": 85,
+        "overall": 99, "reason": "仅有BERT课程项目，无对口工作经验"
+    })
+
+    with patch("app.services.search_service.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(side_effect=[senior_resp, junior_resp])
+
+        senior = await svc._llm_score_multi("NLP工程师", {
+            "name": "毛光铭", "work_years": 4, "education": "本科",
+            "skills": ["BERT", "NLP", "Transformer"],
+            "work_experience": [{"company": "某公司", "position": "NLP开发工程师"}],
+        }, 0.9)
+
+        junior = await svc._llm_score_multi("NLP工程师", {
+            "name": "苏威", "work_years": 0, "education": "本科",
+            "skills": ["BERT", "NLP"],
+            "work_experience": [],
+        }, 0.7)
+
+    # 验证：资深候选人 overall 明显高于应届生（区分度 ≥ 10 分）
+    assert senior["overall"] > junior["overall"]
+    assert senior["overall"] - junior["overall"] >= 10, (
+        f"区分度不足: senior={senior['overall']}, junior={junior['overall']}, "
+        f"差值应≥10"
+    )
+    # experience 维度必须有明显差距
+    assert senior["experience"] > junior["experience"]
+
+
+@pytest.mark.asyncio
+async def test_overall_ignores_llm_overall_uses_weighted_formula():
+    """AC: overall 由代码加权计算，不信任 LLM 返回的 overall
+
+    防止 LLM 给所有候选人都返回相同 overall=78 导致无区分度。
+    即使 LLM 返回 overall=99，代码也会重新计算。
+    """
+    svc = SearchService()
+    with patch("app.services.search_service.llm_client") as mock_llm:
+        # LLM 故意返回 overall=99（虚高）
+        mock_llm.chat = AsyncMock(return_value=json.dumps({
+            "skill": 85, "experience": 70, "education": 90, "salary": 60,
+            "overall": 99, "reason": "测试"
+        }))
+        result = await svc._llm_score_multi("前端", {"name": "张三", "skills": ["Vue"]}, 0.8)
+
+    # overall 应为加权计算结果 79，而非 LLM 返回的 99
+    expected = round(0.4 * 85 + 0.3 * 70 + 0.2 * 90 + 0.1 * 60)
+    assert result["overall"] == expected
+    assert result["overall"] != 99
+
+
+def test_build_candidate_brief_extracts_key_fields():
+    """AC: _build_candidate_brief 只提取评分相关字段，过滤 resume_id/tags 等无关字段"""
+    candidate = {
+        "resume_id": "res_abc",
+        "candidate_id": "c123",
+        "basic_info": {"name": "张三"},
+        "work_years": 5,
+        "education": "硕士",
+        "skills": ["Python", "NLP", "BERT"],
+        "work_experience": [
+            {"company": "阿里", "position": "算法工程师", "description": "..."},
+        ],
+        "projects": [
+            {"name": "NLP文本分类系统", "description": "基于BERT实现文本分类"},
+        ],
+        "summary": "5年NLP算法工程师",
+        "tags": ["推荐"],  # 无关字段
+        "is_favorite": False,  # 无关字段
+        "expected_salary": {"min": 20, "max": 30},  # 无关字段（评分里有专门处理）
+    }
+
+    brief = SearchService._build_candidate_brief(candidate)
+
+    # 应包含关键字段
+    assert "张三" in brief
+    assert "5年" in brief
+    assert "硕士" in brief
+    assert "NLP" in brief
+    assert "阿里" in brief
+    assert "算法工程师" in brief
+    assert "NLP文本分类系统" in brief
+
+    # 不应包含无关字段
+    assert "res_abc" not in brief
+    assert "c123" not in brief
+    assert "is_favorite" not in brief
+    assert "tags" not in brief
+
+
+def test_build_candidate_brief_handles_missing_fields():
+    """AC: _build_candidate_brief 应优雅处理缺失字段"""
+    candidate = {}  # 空文档
+    brief = SearchService._build_candidate_brief(candidate)
+    assert "姓名:" in brief
+    assert "工作年限:0年" in brief
+
+
+def test_build_candidate_brief_truncates_long_project_desc():
+    """AC: _build_candidate_brief 项目描述超长时应截断"""
+    long_desc = "X" * 500
+    candidate = {
+        "name": "张三",
+        "projects": [
+            {"name": "项目A", "description": long_desc},
+        ],
+    }
+    brief = SearchService._build_candidate_brief(candidate)
+    # 项目描述应被截断到 100 字
+    assert "项目A" in brief
+    assert "X" * 500 not in brief
