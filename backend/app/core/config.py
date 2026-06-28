@@ -58,7 +58,12 @@ class Settings(BaseSettings):
     # 管理员初始化（启动时自动创建）
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
-    ADMIN_EMAIL: str = "admin@test.com"
+    ADMIN_EMAIL: str = "a****@********"
+
+    # 可观测性
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    LOG_LEVEL: str = "INFO"
 
     class Config:
         env_file = ".env"

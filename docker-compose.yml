@@ -168,8 +168,12 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@test.com}
       - DEBUG=false
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - model_data:/app/models
+      - backend_logs:/app/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -206,6 +210,7 @@ volumes:
   etcd_data:
   milvus_data:
   model_data:
+  backend_logs:
 
 networks:
   talentsense-net:

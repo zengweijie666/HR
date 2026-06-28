@@ -2,21 +2,52 @@
 文件名: app/main.py
 创建时间: 2026-06-26
 作者: TalentSense Team
-功能描述: FastAPI 应用入口，负责路由挂载、启动事件、全局异常处理
+功能描述: FastAPI 应用入口，负责路由挂载、启动事件、全局异常处理、可观测性集成
 """
 import asyncio
 import json
 import time
 import uuid
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from bson import ObjectId
+
 from app.core.config import settings
 from app.core.response import error, CODE, HTTP_MAP
 from app.core.exceptions import BizError
-from app.core.logger import logger, bind_trace_id
+from app.core.logger import logger, bind_trace_id, bind_request_context, clear_request_context
+
+
+def _init_sentry():
+    """可选初始化 Sentry，SENTRY_DSN 非空时启用"""
+    dsn = settings.SENTRY_DSN.strip()
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            profiles_sample_rate=0.1,
+            environment="production" if not settings.DEBUG else "development",
+            release=settings.APP_NAME,
+            integrations=[
+                StarletteIntegration(transaction_style="url"),
+                FastApiIntegration(transaction_style="url"),
+                LoggingIntegration(event_level="ERROR"),
+            ],
+            send_default_pii=False,
+        )
+        logger.info(f"Sentry 已启用 traces_sample_rate={settings.SENTRY_TRACES_SAMPLE_RATE}")
+    except Exception as e:
+        logger.warning(f"Sentry 初始化失败（忽略）: {e}")
 
 
 class MongoJSONEncoder(json.JSONEncoder):
@@ -53,7 +84,6 @@ async def lifespan(app: FastAPI):
     from app.core.database import MongoDB, RedisClient
     await MongoDB.connect()
     await RedisClient.connect()
-    # 预热 Milvus：启动时即连接 + 确保 Collection 存在（同步IO，在线程池中执行避免阻塞）
     try:
         from app.core.milvus_client import milvus_client
         await asyncio.to_thread(milvus_client.ensure_collection)
@@ -63,28 +93,24 @@ async def lifespan(app: FastAPI):
 
     def _preload_models():
         """线程池中同步预热所有模型，避免阻塞事件循环"""
-        # BGE-M3 Embedding
         try:
             from app.core.embedding import embedding_model
             _ = embedding_model.model
             logger.info("BGE-M3 模型已预热")
         except Exception as e:
             logger.warning(f"BGE-M3 预热失败: {e}")
-        # BGE-Reranker
         try:
             from app.core.reranker import reranker_model
             _ = reranker_model.model
             logger.info("BGE-Reranker 模型已预热")
         except Exception as e:
             logger.warning(f"BGE-Reranker 预热失败: {e}")
-        # RapidOCR
         try:
             from app.core.ocr import ocr_engine
             _ = ocr_engine.engine
             logger.info("RapidOCR 引擎已预热")
         except Exception as e:
             logger.warning(f"RapidOCR 预热失败: {e}")
-        # MinIO 连接 + bucket 检查
         try:
             from app.core.minio_client import minio_client
             _ = minio_client.client
@@ -92,10 +118,8 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"MinIO 预热失败: {e}")
 
-    # 模型预热放到后台线程池，不阻塞应用启动（yield后后台继续加载）
     preload_task = asyncio.create_task(asyncio.to_thread(_preload_models))
 
-    # 创建 MongoDB 索引
     try:
         from app.core.database import MongoDB
         if MongoDB.db is not None:
@@ -106,11 +130,12 @@ async def lifespan(app: FastAPI):
             await MongoDB.db.chat_sessions.create_index([("user_id", 1), ("updated_at", -1)])
             await MongoDB.db.chat_messages.create_index("session_id")
             await MongoDB.db.email_templates.create_index("template_id", unique=True)
+            await MongoDB.db.frontend_errors.create_index([("created_at", -1)])
+            await MongoDB.db.frontend_errors.create_index([("user_id", 1), ("created_at", -1)])
             logger.info("MongoDB 索引已就绪")
     except Exception as e:
         logger.warning(f"MongoDB 索引创建失败（可能已存在）: {e}")
 
-    # 自动初始化管理员账号
     try:
         from app.services.auth_service import AuthService
         admin_username = settings.ADMIN_USERNAME
@@ -146,14 +171,12 @@ async def lifespan(app: FastAPI):
             logger.info(f"管理员账号 {admin_username} 已自动创建")
     except Exception as e:
         logger.warning(f"管理员初始化失败: {e}")
-    # 初始化预置邮件模板
     try:
         from app.core.email_templates_seed import seed_builtin_templates
         await seed_builtin_templates(MongoDB.db)
         logger.info("预置邮件模板已就绪")
     except Exception as e:
         logger.warning(f"预置邮件模板初始化失败: {e}")
-    # 重置遗留的 parsing 状态
     try:
         await MongoDB.db.resumes.update_many(
             {"parse_info.parse_status": "parsing"},
@@ -163,41 +186,85 @@ async def lifespan(app: FastAPI):
         logger.warning(f"重置遗留 parsing 状态失败: {e}")
     logger.info("应用启动完成（模型在后台预热中）")
     yield
-    # 关闭时等待预热线程完成
     try:
         await asyncio.wait_for(preload_task, timeout=5)
     except Exception:
         pass
     await MongoDB.disconnect()
+    clear_request_context()
     logger.info("应用已关闭")
 
 
-app = FastAPI(title=settings.APP_NAME, version="2.5.0", lifespan=lifespan, default_response_class=MongoJSONResponse)
+app = FastAPI(
+    title=settings.APP_NAME,
+    version="2.6.0",
+    lifespan=lifespan,
+    default_response_class=MongoJSONResponse,
+)
+
+_init_sentry()
+
+from app.core.metrics import setup_metrics
+setup_metrics(app)
+
+
+def _get_client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
 
 
 @app.middleware("http")
 async def trace_middleware(request: Request, call_next):
-    """注入 trace_id + 记录请求耗时"""
-    tid = request.headers.get("X-Trace-Id") or bind_trace_id()
+    """注入 trace_id + 绑定请求上下文 + 记录请求耗时/访问日志"""
+    tid = request.headers.get("X-Trace-Id") or f"trace_{uuid.uuid4().hex[:16]}"
     bind_trace_id(tid)
+    client_ip = _get_client_ip(request)
+    bind_request_context(path=request.url.path, client_ip=client_ip)
+
     start = time.perf_counter()
-    response = await call_next(request)
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    response.headers["X-Trace-Id"] = tid
-    response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
-    # 只记录较慢的请求(>200ms)，避免日志过多
-    if elapsed_ms > 200:
-        logger.warning(f"慢请求: {request.method} {request.url.path} - {elapsed_ms:.1f}ms")
-    elif request.url.path not in ("/health",):
-        logger.debug(f"{request.method} {request.url.path} - {elapsed_ms:.1f}ms")
-    return response
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        response.headers["X-Trace-Id"] = tid
+        response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
+
+        if request.url.path in ("/health", "/metrics"):
+            return response
+
+        if status_code >= 500:
+            logger.error(
+                f"{request.method} {request.url.path} -> {status_code} ({elapsed_ms:.1f}ms) ip={client_ip}"
+            )
+        elif elapsed_ms > 1000:
+            logger.warning(
+                f"慢请求: {request.method} {request.url.path} -> {status_code} ({elapsed_ms:.1f}ms) ip={client_ip}"
+            )
+        elif status_code >= 400:
+            logger.info(
+                f"{request.method} {request.url.path} -> {status_code} ({elapsed_ms:.1f}ms) ip={client_ip}"
+            )
+        else:
+            logger.debug(
+                f"{request.method} {request.url.path} -> {status_code} ({elapsed_ms:.1f}ms)"
+            )
+        return response
+    except Exception as exc:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.exception(f"请求异常: {request.method} {request.url.path} ({elapsed_ms:.1f}ms): {exc}")
+        raise
+    finally:
+        clear_request_context()
 
 
 @app.exception_handler(BizError)
 async def biz_error_handler(request: Request, exc: BizError):
     """业务异常处理"""
     bind_trace_id(request.headers.get("X-Trace-Id"))
-    logger.warning(f"业务异常: code={exc.code} msg={exc.message}")
+    logger.warning(f"业务异常: code={exc.code} msg={exc.message} path={request.url.path}")
     return MongoJSONResponse(
         status_code=HTTP_MAP.get(exc.code, 500),
         content=error(exc.code, exc.message, exc.data),
@@ -208,19 +275,23 @@ async def biz_error_handler(request: Request, exc: BizError):
 async def unhandled_handler(request: Request, exc: Exception):
     """未捕获异常兜底"""
     bind_trace_id(request.headers.get("X-Trace-Id"))
-    logger.exception(f"未捕获异常: {exc}")
+    logger.exception(f"未捕获异常: {request.method} {request.url.path} - {exc}")
+    dsn = settings.SENTRY_DSN.strip()
+    if dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
     return MongoJSONResponse(
         status_code=500,
         content=error(CODE.SERVER_ERROR, "服务器内部错误"),
     )
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+from app.core.health import router as health_router
+app.include_router(health_router, tags=["健康检查"])
 
-
-# 挂载业务路由（按 Phase 顺序逐步开放）
 from app.api import auth
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["认证"])
 from app.api import resumes
@@ -241,3 +312,5 @@ from app.api import dashboard
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_PREFIX}/dashboard", tags=["看板"])
 from app.api import users
 app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=["用户管理"])
+from app.api import monitor
+app.include_router(monitor.router, prefix=f"{settings.API_V1_PREFIX}/monitor", tags=["前端监控"])
