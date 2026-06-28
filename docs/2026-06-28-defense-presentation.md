@@ -27,6 +27,7 @@
 | P3 | 项目背景与目标 | 1.5min |
 | P4 | 项目概览（功能矩阵） | 1min |
 | P5 | 全栈技术架构 | 1.5min |
+| P5.5 | 核心数据流全景图 | 1min |
 | P6 | 后端三层架构 | 1min |
 | P7 | 前端架构与设计系统 | 1min |
 | P8 | **核心技术1：AI 检索流水线** | 2min |
@@ -137,6 +138,114 @@
 > - **MinIO**：简历原始文件对象存储，支持预签名 URL 预览
 > - **BGE-M3**：开源中文向量化模型，同时输出稠密+稀疏向量
 > - **通义千问 qwen-plus**：OpenAI 兼容接口，支持 JSON 模式输出结构化评分
+
+---
+
+### P5.5 · 核心数据流全景图（补充页）
+
+> 以下是系统 4 条核心数据链路的完整流转图，展示用户输入如何流经各模块，以及每个模块内部调用了哪些技术组件。
+>
+> ```mermaid
+> flowchart TB
+>     %% ===== 链路1: 简历上传解析 =====
+>     subgraph L1["🔗 链路1：简历上传解析"]
+>         direction TB
+>         U1["👤 用户上传<br/>DOCX / PDF / 图片"] --> A1["API<br/>POST /resumes/upload"]
+>         A1 --> S1["ResumeService.upload"]
+>         S1 --> M1[("MinIO<br/>存储原始文件")]
+>         S1 --> DB1a[("MongoDB<br/>insert 占位 parsing")]
+>         DB1a --> P1["后台异步 _parse_and_index"]
+>         P1 --> T1["文本提取<br/>PyMuPDF / python-docx<br/>—— OCR降级: RapidOCR"]
+>         T1 --> LLM1["LLM 结构化解析<br/>qwen-plus · JSON模式"]
+>         LLM1 --> RG1["正则兜底 + 去重检查<br/>phone/email hash"]
+>         RG1 --> CK1["父子块切分<br/>split_parent_child"]
+>         CK1 --> EM1["🔒 BGE-M3 编码<br/>dense + sparse 向量"]
+>         EM1 --> VS1[("Milvus<br/>写入向量")]
+>         VS1 --> DB1b[("MongoDB<br/>update 结构化 completed")]
+>     end
+> 
+>     %% ===== 链路2: 语义检索 =====
+>     subgraph L2["🔍 链路2：语义检索"]
+>         direction TB
+>         U2["👤 HR 自然语言查询<br/>'5年前端工程师'"] --> A2["API<br/>POST /search"]
+>         A2 --> S2["SearchService.search"]
+>         S2 --> RC[("Redis<br/>读缓存(5min TTL)")]
+>         RC -- "未命中" --> ST["策略选择器<br/>direct/decompose/semantic"]
+>         ST --> RW["查询改写<br/>多改写提升召回"]
+>         RW --> LOOP["对每个改写查询循环"]
+>         LOOP --> EM2["🔒 BGE-M3 编码"]
+>         EM2 --> VS2[("Milvus<br/>Hybrid检索<br/>dense×1.0 + sparse×0.7")]
+>         VS2 --> DEDUP["chunk_id 去重"]
+>         DEDUP --> RR["🔒 BGE-Reranker 精排<br/>cross-encoder 重排序"]
+>         RR --> DB2[("MongoDB<br/>批量拉取候选人元数据")]
+>         DB2 --> LLM2["LLM 4维度评分<br/>skill/exp/edu/salary<br/>asyncio.gather 并发"]
+>         LLM2 --> RC2[("Redis<br/>写缓存")]
+>         RC2 --> R2["返回候选人卡片列表<br/>按 overall 降序"]
+>     end
+> 
+>     %% ===== 链路3: 智能对话 =====
+>     subgraph L3["💬 链路3：智能对话（Agent工作流）"]
+>         direction TB
+>         U3["👤 用户消息<br/>'推荐前端工程师'"] --> A3["API<br/>POST /chat/messages · SSE"]
+>         A3 --> S3["AgentService.send_message_stream"]
+>         S3 --> HIST[("MongoDB<br/>加载最近10条历史")]
+>         HIST --> N1["节点1: 意图识别<br/>LLM 分类 5类<br/>chitchat/search/detail/compare/qa"]
+>         N1 -->|"yield SSE intent"| N2{意图判断}
+>         N2 -->|"search/compare/detail"| N3["节点2: 检索+精排<br/>复用 SearchService.search"]
+>         N3 -->|"yield SSE<br/>retrieval→rank→candidates"| N4["节点3: LLM 流式回答<br/>qwen-plus chat_stream"]
+>         N2 -->|"chitchat/qa"| N4
+>         N4 -->|"yield SSE token ×N"| N5[("MongoDB<br/>保存消息+更新会话标题")]
+>         N5 -->|"yield SSE done"| R3["前端实时渲染<br/>token流 + 候选人卡片"]
+>     end
+> 
+>     %% ===== 链路4: JD匹配 =====
+>     subgraph L4["📄 链路4：JD匹配"]
+>         direction TB
+>         U4["👤 HR 粘贴JD文本"] --> A4["API<br/>POST /jd/match"]
+>         A4 --> S4["JdMatchService.match_jd"]
+>         S4 --> LLM4a["LLM 解析JD<br/>提取 title/skills/years/salary"]
+>         LLM4a --> EM4["🔒 BGE-M3 编码"]
+>         EM4 --> VS4[("Milvus<br/>Hybrid检索")]
+>         VS4 --> RR4["🔒 BGE-Reranker 精排"]
+>         RR4 --> DB4[("MongoDB<br/>拉取候选人元数据")]
+>         DB4 --> LLM4b["LLM 生成匹配理由<br/>串行 · 每个候选人"]
+>         LLM4b --> R4["返回匹配结果<br/>match_score + reason"]
+>     end
+> 
+>     %% ===== 共享基础设施层 =====
+>     subgraph INFRA["⚙️ 共享基础设施"]
+>         direction LR
+>         I1[("MongoDB<br/>简历/会话/用户/评价")]
+>         I2[("Redis<br/>缓存/Token黑名单")]
+>         I3[("Milvus<br/>向量库")]
+>         I4[("MinIO<br/>文件存储")]
+>         I5["🔒 BGE-M3<br/>向量化模型"]
+>         I6["🔒 BGE-Reranker<br/>精排模型"]
+>         I7["🤖 qwen-plus<br/>LLM 通义千问"]
+>     end
+> 
+>     %% 跨链路标注（虚线表示共享组件）
+>     EM1 -.-> I5
+>     EM2 -.-> I5
+>     EM4 -.-> I5
+>     RR -.-> I6
+>     RR4 -.-> I6
+>     LLM1 -.-> I7
+>     LLM2 -.-> I7
+>     N1 -.-> I7
+>     N4 -.-> I7
+>     LLM4a -.-> I7
+>     LLM4b -.-> I7
+> ```
+>
+> **4 条链路对比：**
+>
+> | 链路 | 入口 | 核心组件调用顺序 | 特色 |
+> |------|------|-----------------|------|
+> | 简历解析 | `POST /resumes/upload` | MinIO → 文本提取(+OCR降级) → LLM解析 → 去重 → BGE-M3 → Milvus → MongoDB | 全流程自动化，OCR兜底 |
+> | 语义检索 | `POST /search` | Redis缓存 → 策略选择 → 查询改写 → [BGE-M3 → Milvus Hybrid]×N → Reranker → MongoDB → LLM评分 → Redis | 多改写召回 + 双层精排 |
+> | 智能对话 | `POST /chat/messages` | 意图识别LLM → [检索+精排] → LLM流式回答 → SSE推送 → MongoDB | Agent动态路由 + SSE实时 |
+> | JD匹配 | `POST /jd/match` | LLM解析JD → BGE-M3 → Milvus → Reranker → MongoDB → LLM匹配理由 | 无LLM评分，rerank_score直接定分 |
 
 ---
 
@@ -611,3 +720,4 @@
 |------|------|------|------|
 | v1.0 | 2026-06-28 | TalentSense Team | 初版答辩文档 |
 | v2.0 | 2026-06-28 | TalentSense Team | 新增 P16 生产级运维（Docker+可观测性）；更新测试数量至 405；更新数据看板至 7 维度 |
+| v2.1 | 2026-06-28 | TalentSense Team | 新增 P5.5 核心数据流全景图（Mermaid），展示4条链路从用户输入到模块到技术组件的完整流转 |
