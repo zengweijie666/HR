@@ -91,6 +91,18 @@ HYDE_PROMPT = """你是招聘检索关键词扩展器。用户给出了一个模
 用户需求：{query}
 关键词："""
 
+SYNONYM_EXPAND_PROMPT = """你是招聘技能同义词扩展器。用户给出了一个包含明确技能/岗位关键词的查询，请扩展出相关的具体技术、框架、工具或领域同义词，用于语义检索召回更多匹配候选人。
+
+规则：
+1. 只输出关键词，用空格分隔，不要句子，不要markdown，不要解释
+2. 扩展出该领域常见的技术栈和工具（如"NLP"→"NLP BERT GPT Transformer FastText Word2Vec TextCNN 自然语言处理 文本分类 命名实体识别"）
+3. 扩展出岗位别称（如"前端"→"前端 Vue React HTML CSS JavaScript TypeScript"）
+4. 保留原始查询词，扩展3-10个关键词
+5. 总长度控制在150字以内
+
+用户查询：{query}
+扩展关键词："""
+
 SUBQUERY_PROMPT = """将以下复杂招聘查询拆解为多个子查询，返回 JSON 数组：
 查询：{query}
 子查询 JSON 数组："""

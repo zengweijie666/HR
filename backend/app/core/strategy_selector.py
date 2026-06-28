@@ -13,6 +13,7 @@ from app.core.llm_client import llm_client
 from app.agent.prompts import (
     STRATEGY_SELECT_PROMPT,
     HYDE_PROMPT,
+    SYNONYM_EXPAND_PROMPT,
     SUBQUERY_PROMPT,
     BACKTRACKING_PROMPT,
 )
@@ -112,6 +113,12 @@ class StrategySelector:
             改写后的 query 列表
         """
         if strategy == "direct":
+            # direct 策略也做同义词扩展，确保语义关联词能被召回
+            # 例如 "NLP" 扩展为 "NLP BERT FastText Transformer 自然语言处理 ..."
+            # 这样稠密向量能匹配到写"BERT/FastText"但没写"NLP"的候选人
+            expanded = await self._expand_synonyms(query)
+            if expanded and expanded != query:
+                return [query, expanded]
             return [query]
         if strategy == "hyde":
             # HYDE：原查询 + 关键词扩展查询（不生成长篇简历，长文本向量稀释严重）
@@ -153,6 +160,28 @@ class StrategySelector:
                 logger.warning(f"backtracking 改写失败，回退原查询: {e}")
             return [query]
         return [query]
+
+    async def _expand_synonyms(self, query: str) -> str:
+        """LLM 同义词扩展，为明确技能/岗位查询补充关联技术栈关键词
+
+        入参:
+            query: 原始查询（如 "NLP"、"前端工程师"）
+        出参:
+            扩展后的查询字符串（如 "NLP BERT FastText Transformer 自然语言处理 ..."）
+            LLM 调用失败时返回空字符串，调用方回退为原查询
+        """
+        prompt = SYNONYM_EXPAND_PROMPT.format(query=query)
+        try:
+            result = await self.llm.chat([{"role": "user", "content": prompt}])
+            expanded = result.strip()
+            # 去 markdown 包裹
+            if expanded.startswith("```"):
+                expanded = re.sub(r'^```\w*\n?', '', expanded)
+                expanded = re.sub(r'\n?```$', '', expanded)
+            return expanded.strip()
+        except Exception as e:
+            logger.warning(f"同义词扩展失败，回退原查询: {e}")
+            return ""
 
 
 strategy_selector = StrategySelector()
