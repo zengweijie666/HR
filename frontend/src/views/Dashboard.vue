@@ -5,7 +5,9 @@
   功能描述: 数据看板
     - 顶部页头：eyebrow + 大标题 + 副文案
     - 4 个统计卡片（简历总数/收藏/解析中/会话数）
-    - 3 个图表卡片（Top 技能/学历分布/薪资分布）
+    - 第一行图表：Top 技能 / 学历分布 / 薪资分布
+    - 第二行图表：招聘漏斗 / 简历入库趋势(30天)
+    - 第三行图表：工作经验分布 / 面试结果统计
     - onMounted 调 getStats，loading 用 LoadingOverlay
 -->
 <template>
@@ -34,7 +36,7 @@
       </el-col>
     </el-row>
 
-    <!-- 图表卡片 -->
+    <!-- 第一行图表：Top技能 / 学历分布 / 薪资分布 -->
     <el-row :gutter="16" class="page-dashboard__charts">
       <el-col :span="8">
         <ChartWidget title="Top 技能分布" :option="skillChartOption" :height="320" />
@@ -44,6 +46,26 @@
       </el-col>
       <el-col :span="8">
         <ChartWidget title="薪资分布" :option="salaryChartOption" :height="320" />
+      </el-col>
+    </el-row>
+
+    <!-- 第二行图表：招聘漏斗 / 入库趋势 -->
+    <el-row :gutter="16" class="page-dashboard__charts">
+      <el-col :span="10">
+        <ChartWidget title="招聘漏斗" :option="funnelChartOption" :height="340" />
+      </el-col>
+      <el-col :span="14">
+        <ChartWidget title="简历入库趋势（近30天）" :option="trendChartOption" :height="340" />
+      </el-col>
+    </el-row>
+
+    <!-- 第三行图表：工作经验分布 / 面试结果统计 -->
+    <el-row :gutter="16" class="page-dashboard__charts">
+      <el-col :span="12">
+        <ChartWidget title="工作经验分布" :option="workYearsChartOption" :height="300" />
+      </el-col>
+      <el-col :span="12">
+        <ChartWidget title="面试结果统计" :option="interviewResultChartOption" :height="300" />
       </el-col>
     </el-row>
   </div>
@@ -97,10 +119,7 @@ const skillChartOption = computed<Record<string, unknown>>(() => {
       {
         type: 'bar',
         data: list.map((i) => i.count),
-        itemStyle: {
-          color: '#1a3a32',
-          borderRadius: [4, 4, 0, 0],
-        },
+        itemStyle: { color: '#1a3a32', borderRadius: [4, 4, 0, 0] },
         barWidth: '48%',
       },
     ],
@@ -112,10 +131,7 @@ const educationChartOption = computed<Record<string, unknown>>(() => {
   const list = stats.value?.education_distribution || []
   return {
     tooltip: { trigger: 'item' },
-    legend: {
-      bottom: 0,
-      textStyle: { color: '#5c5751', fontSize: 12 },
-    },
+    legend: { bottom: 0, textStyle: { color: '#5c5751', fontSize: 12 } },
     color: ['#1a3a32', '#c8924a', '#d97757', '#87a878'],
     series: [
       {
@@ -139,7 +155,7 @@ const salaryChartOption = computed<Record<string, unknown>>(() => {
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
-      data: list.map((i) => i._id),
+      data: list.map((i) => String(i._id)),
       axisLabel: { color: '#5c5751', fontSize: 12 },
       axisLine: { lineStyle: { color: '#e3ddd2' } },
     },
@@ -152,11 +168,136 @@ const salaryChartOption = computed<Record<string, unknown>>(() => {
       {
         type: 'bar',
         data: list.map((i) => i.count),
-        itemStyle: {
-          color: '#c8924a',
-          borderRadius: [4, 4, 0, 0],
-        },
+        itemStyle: { color: '#c8924a', borderRadius: [4, 4, 0, 0] },
         barWidth: '48%',
+      },
+    ],
+  }
+})
+
+/** 招聘漏斗图配置 */
+const funnelChartOption = computed<Record<string, unknown>>(() => {
+  const list = stats.value?.recruitment_funnel || []
+  return {
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c}',
+    },
+    color: ['#1a3a32', '#2d5a4e', '#c8924a', '#d97757', '#87a878'],
+    series: [
+      {
+        type: 'funnel',
+        left: '10%',
+        right: '10%',
+        top: 20,
+        bottom: 20,
+        minSize: '20%',
+        maxSize: '100%',
+        sort: 'descending',
+        gap: 2,
+        label: {
+          show: true,
+          position: 'inside',
+          color: '#fff',
+          fontSize: 13,
+          formatter: '{b}\n{c}',
+        },
+        itemStyle: { borderColor: '#fff', borderWidth: 1 },
+        data: list.map((i) => ({ name: i.stage, value: i.count })),
+      },
+    ],
+  }
+})
+
+/** 简历入库趋势折线图配置 */
+const trendChartOption = computed<Record<string, unknown>>(() => {
+  const list = stats.value?.resume_trend || []
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 40, right: 20, top: 20, bottom: 30 },
+    xAxis: {
+      type: 'category',
+      data: list.map((i) => i.date.slice(5)),
+      axisLabel: { color: '#5c5751', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#e3ddd2' } },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { color: '#918b82', fontSize: 12 },
+      splitLine: { lineStyle: { color: '#efeae0' } },
+    },
+    series: [
+      {
+        type: 'line',
+        data: list.map((i) => i.count),
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 5,
+        lineStyle: { width: 2, color: '#1a3a32' },
+        itemStyle: { color: '#1a3a32' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(26,58,50,0.25)' },
+              { offset: 1, color: 'rgba(26,58,50,0.02)' },
+            ],
+          },
+        },
+      },
+    ],
+  }
+})
+
+/** 工作经验分布柱状图配置 */
+const workYearsChartOption = computed<Record<string, unknown>>(() => {
+  const list = stats.value?.work_years_distribution || []
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 40, right: 20, top: 20, bottom: 30 },
+    xAxis: {
+      type: 'category',
+      data: list.map((i) => i.range),
+      axisLabel: { color: '#5c5751', fontSize: 12 },
+      axisLine: { lineStyle: { color: '#e3ddd2' } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#918b82', fontSize: 12 },
+      splitLine: { lineStyle: { color: '#efeae0' } },
+    },
+    series: [
+      {
+        type: 'bar',
+        data: list.map((i) => i.count),
+        itemStyle: { color: '#87a878', borderRadius: [4, 4, 0, 0] },
+        barWidth: '50%',
+      },
+    ],
+  }
+})
+
+/** 面试结果统计饼图配置 */
+const interviewResultChartOption = computed<Record<string, unknown>>(() => {
+  const list = stats.value?.interview_result_distribution || []
+  return {
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, textStyle: { color: '#5c5751', fontSize: 12 } },
+    color: ['#87a878', '#d97757', '#c8924a', '#918b82'],
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '65%'],
+        center: ['50%', '45%'],
+        label: {
+          show: true,
+          formatter: '{b}: {c} ({d}%)',
+          color: '#5c5751',
+          fontSize: 12,
+        },
+        data: list.map((i) => ({ name: i.result, value: i.count })),
       },
     ],
   }

@@ -11,5 +11,9 @@ export interface DashboardStats {
   total_sessions: number
   top_skills: { _id: string; count: number }[]
   education_distribution: { _id: string; count: number }[]
-  salary_distribution: { _id: string; count: number }[]
+  salary_distribution: { _id: string | number; count: number }[]
+  recruitment_funnel: { stage: string; count: number }[]
+  resume_trend: { date: string; count: number }[]
+  work_years_distribution: { range: string; count: number }[]
+  interview_result_distribution: { result: string; count: number }[]
 }

@@ -7,6 +7,8 @@
 出参: 看板统计数据 dict
 对应 Business-Requirements F22 (AC22.1-22.3)
 """
+from datetime import datetime, timedelta, timezone
+
 from app.core.database import MongoDB
 from app.core.logger import logger
 
@@ -54,24 +56,24 @@ class DashboardService:
         self._notes_coll = value
 
     async def get_stats(self) -> dict:
-        """AC22.1-22.3: 看板统计
+        """AC22.1-22.3: 看板统计（含招聘漏斗、入库趋势、经验分布、面试结果）
 
         入参: 无
-        出参:
-            {total_resumes, favorite_count, parsing_count, total_sessions,
-             top_skills, education_distribution, salary_distribution}
+        出参: 看板统计数据 dict
         """
         if self.resumes_coll is None:
             return {
                 "total_resumes": 0, "favorite_count": 0, "parsing_count": 0,
                 "total_sessions": 0, "top_skills": [],
                 "education_distribution": [], "salary_distribution": [],
+                "recruitment_funnel": [], "resume_trend": [],
+                "work_years_distribution": [], "interview_result_distribution": [],
             }
 
         total = await self.resumes_coll.count_documents({})
         favorite = await self.resumes_coll.count_documents({"is_favorite": True})
         parsing = await self.resumes_coll.count_documents(
-            {"parse_status": {"$in": ["pending", "parsing"]}}
+            {"parse_info.parse_status": {"$in": ["pending", "parsing"]}}
         )
         sessions = (
             await self.sessions_coll.count_documents({})
@@ -82,6 +84,10 @@ class DashboardService:
         top_skills = await self._top_skills()
         education_dist = await self._education_distribution()
         salary_dist = await self._salary_distribution()
+        funnel = await self._recruitment_funnel()
+        trend = await self._resume_trend(days=30)
+        work_years_dist = await self._work_years_distribution()
+        interview_dist = await self._interview_result_distribution()
 
         logger.info(
             f"看板统计: 简历={total}, 收藏={favorite}, 解析中={parsing}, 会话={sessions}"
@@ -94,15 +100,17 @@ class DashboardService:
             "top_skills": top_skills,
             "education_distribution": education_dist,
             "salary_distribution": salary_dist,
+            "recruitment_funnel": funnel,
+            "resume_trend": trend,
+            "work_years_distribution": work_years_dist,
+            "interview_result_distribution": interview_dist,
         }
 
     async def _top_skills(self, limit: int = 10) -> list[dict]:
         """AC22.1: Top 技能聚合
 
-        入参:
-            limit: 返回数量
-        出参:
-            [{_id: skill, count: n}, ...]
+        入参: limit 返回数量
+        出参: [{_id: skill, count: n}, ...]
         """
         pipeline = [
             {"$unwind": "$skills"},
@@ -116,9 +124,7 @@ class DashboardService:
     async def _education_distribution(self) -> list[dict]:
         """AC22.2: 学历分布聚合
 
-        入参: 无
-        出参:
-            [{_id: education, count: n}, ...]
+        出参: [{_id: education, count: n}, ...]
         """
         pipeline = [
             {"$group": {"_id": "$education", "count": {"$sum": 1}}},
@@ -130,9 +136,7 @@ class DashboardService:
     async def _salary_distribution(self) -> list[dict]:
         """AC22.3: 薪资分布聚合（按 expected_salary.min 分桶）
 
-        入参: 无
-        出参:
-            [{_id: bucket, count: n}, ...]
+        出参: [{_id: bucket, count: n}, ...]
         """
         pipeline = [
             {
@@ -146,6 +150,107 @@ class DashboardService:
         ]
         cursor = self.resumes_coll.aggregate(pipeline)
         return await cursor.to_list(length=10)
+
+    async def _recruitment_funnel(self) -> list[dict]:
+        """招聘漏斗：总简历 → 解析完成 → 收藏 → 有面试评价 → 面试通过
+
+        出参: [{stage: "简历入库", count: n}, ...]
+        """
+        total = await self.resumes_coll.count_documents({})
+        parsed = await self.resumes_coll.count_documents(
+            {"parse_info.parse_status": "completed"}
+        )
+        fav = await self.resumes_coll.count_documents({"is_favorite": True})
+
+        interviewed = 0
+        passed = 0
+        if self.notes_coll is not None:
+            interviewed = await self.notes_coll.count_documents({})
+            passed = await self.notes_coll.count_documents({"result": "通过"})
+
+        return [
+            {"stage": "简历入库", "count": total},
+            {"stage": "解析完成", "count": parsed},
+            {"stage": "收藏候选", "count": fav},
+            {"stage": "安排面试", "count": interviewed},
+            {"stage": "面试通过", "count": passed},
+        ]
+
+    async def _resume_trend(self, days: int = 30) -> list[dict]:
+        """简历入库趋势（近N天按日聚合）
+
+        入参: days 统计天数
+        出参: [{date: "2026-06-01", count: n}, ...]
+        """
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(days=days)
+        pipeline = [
+            {"$match": {"created_at": {"$gte": since.isoformat()}}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d",
+                            "date": {"$dateFromString": {"dateString": "$created_at"}},
+                        }
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id": 1}},
+        ]
+        cursor = self.resumes_coll.aggregate(pipeline)
+        raw = await cursor.to_list(length=days)
+
+        # 补全空日期，确保连续
+        date_map = {item["_id"]: item["count"] for item in raw}
+        result = []
+        for i in range(days):
+            d = (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+            result.append({"date": d, "count": date_map.get(d, 0)})
+        return result
+
+    async def _work_years_distribution(self) -> list[dict]:
+        """工作经验分布（按年限分桶：0-3年/3-5年/5-10年/10+年）
+
+        出参: [{range: "0-3年", count: n}, ...]
+        """
+        pipeline = [
+            {
+                "$bucket": {
+                    "groupBy": "$work_years",
+                    "boundaries": [0, 3, 5, 10, 100],
+                    "default": "Other",
+                    "output": {"count": {"$sum": 1}},
+                }
+            }
+        ]
+        cursor = self.resumes_coll.aggregate(pipeline)
+        raw = await cursor.to_list(length=10)
+
+        label_map = {0: "0-3年", 3: "3-5年", 5: "5-10年", 10: "10+年"}
+        return [
+            {"range": label_map.get(item["_id"], str(item["_id"])), "count": item["count"]}
+            for item in raw
+        ]
+
+    async def _interview_result_distribution(self) -> list[dict]:
+        """面试结果统计（通过/不通过/待定）
+
+        出参: [{result: "通过", count: n}, ...]
+        """
+        if self.notes_coll is None:
+            return []
+        pipeline = [
+            {"$group": {"_id": "$result", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+        ]
+        cursor = self.notes_coll.aggregate(pipeline)
+        raw = await cursor.to_list(length=10)
+        return [
+            {"result": item["_id"] or "未设置", "count": item["count"]}
+            for item in raw
+        ]
 
 
 dashboard_service = DashboardService()
