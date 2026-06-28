@@ -162,6 +162,12 @@ async function handleSend(): Promise<void> {
         onIntent: (data) => {
           chatStore.setIntent(data.intent)
           chatStore.setStrategy(data.strategy)
+          // 同步 intent/strategy 到当前 assistant 消息对象，供 Workbench watch 判断意图
+          const last = chatStore.messages[chatStore.messages.length - 1]
+          if (last && last.role === 'assistant') {
+            last.intent = data.intent
+            last.strategy = data.strategy
+          }
         },
         onToken: (delta) => chatStore.appendToken(delta),
         onCandidates: (candidates) => {

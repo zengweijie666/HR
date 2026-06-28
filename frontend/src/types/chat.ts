@@ -31,7 +31,7 @@ export type SSEEvent =
   | { event: 'retrieval'; data: { count: number; candidate_ids: string[] } }
   | { event: 'rank'; data: { ranked: { candidate_id: string; score: number }[] } }
   | { event: 'token'; data: { delta: string } }
-  | { event: 'candidates'; data: { candidates: CandidateCard[] } }
+  | { event: 'candidates'; data: CandidateCard[] }
   | { event: 'done'; data: { message_id: string; response: string; title?: string | null } }
   | { event: 'error'; data: { code: number; message: string } }
 

@@ -78,10 +78,10 @@ describe('views/Dashboard', () => {
     expect(nums).toContain('25')
   })
 
-  it('渲染 3 个图表卡片 ChartWidget', async () => {
+  it('渲染 7 个图表卡片 ChartWidget', async () => {
     const wrapper = mount(Dashboard)
     await flushPromises()
     const charts = wrapper.findAllComponents({ name: 'ChartWidget' })
-    expect(charts.length).toBe(3)
+    expect(charts.length).toBe(7)
   })
 })

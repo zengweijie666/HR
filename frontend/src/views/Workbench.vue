@@ -162,9 +162,15 @@ function handleSelectCandidate(candidate: CandidateCardType): void {
  * 监听消息变化，同步推荐候选人
  * - 检索类意图（search/compare/detail）：用最新 candidates 覆盖卡片（含空结果，体现'无匹配'）
  * - 非检索类意图（chitchat/qa）：保留既有卡片，避免追问时卡片消失
+ *
+ * 监听源说明：同时监听 messages.length（新消息加入）和最后一条消息的 candidates
+ * （SSE onCandidates 通过 mutate 字段更新，不改变 length），确保两种场景都能触发。
  */
 watch(
-  () => chatStore.messages.length,
+  () => [
+    chatStore.messages.length,
+    chatStore.messages[chatStore.messages.length - 1]?.candidates,
+  ],
   () => {
     const last = chatStore.messages[chatStore.messages.length - 1]
     if (!last || last.role !== 'assistant') return
