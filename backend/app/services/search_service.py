@@ -7,6 +7,7 @@
 出参: 候选人卡片列表
 对应 Business-Requirements F13
 """
+import asyncio
 import json
 from app.core.embedding import embedding_model
 from app.core.reranker import reranker_model
@@ -163,32 +164,41 @@ class SearchService:
         chunk_map = {c.get("candidate_id"): c for c in chunks}
 
         scored: list[dict] = []
-        for doc in docs:
-            cid = doc.get("candidate_id")
-            rid = doc.get("resume_id")
-            rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
-            score_data = await self._llm_score_multi(query, doc, rerank_score)
-            scored.append({
-                "candidate_id": cid,
-                "resume_id": rid,
-                "name": doc.get("basic_info", {}).get("name", "") or doc.get("name", ""),
-                "work_years": doc.get("work_years", 0),
-                "education": doc.get("education", ""),
-                "education_level": doc.get("education_level", 0),
-                "skills": doc.get("skills", []),
-                "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
-                "score": score_data["overall"],
-                "score_detail": {
-                    "skill": score_data["skill"],
-                    "experience": score_data["experience"],
-                    "education": score_data["education"],
-                    "salary": score_data["salary"],
-                },
-                "reason": score_data["reason"],
-                "tags": doc.get("tags", []),
-                "is_favorite": doc.get("is_favorite", False),
-                "summary": doc.get("summary", ""),
-            })
+
+        async def _score_one(doc: dict) -> dict | None:
+            """单个候选人评分（并发安全）"""
+            try:
+                cid = doc.get("candidate_id")
+                rid = doc.get("resume_id")
+                rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
+                score_data = await self._llm_score_multi(query, doc, rerank_score)
+                return {
+                    "candidate_id": cid,
+                    "resume_id": rid,
+                    "name": doc.get("basic_info", {}).get("name", "") or doc.get("name", ""),
+                    "work_years": doc.get("work_years", 0),
+                    "education": doc.get("education", ""),
+                    "education_level": doc.get("education_level", 0),
+                    "skills": doc.get("skills", []),
+                    "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
+                    "score": score_data["overall"],
+                    "score_detail": {
+                        "skill": score_data["skill"],
+                        "experience": score_data["experience"],
+                        "education": score_data["education"],
+                        "salary": score_data["salary"],
+                    },
+                    "reason": score_data["reason"],
+                    "tags": doc.get("tags", []),
+                    "is_favorite": doc.get("is_favorite", False),
+                    "summary": doc.get("summary", ""),
+                }
+            except Exception as e:
+                logger.warning(f"候选人评分异常: {e}")
+                return None
+
+        results = await asyncio.gather(*[_score_one(doc) for doc in docs], return_exceptions=False)
+        scored = [r for r in results if r is not None]
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored
 

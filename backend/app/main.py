@@ -4,7 +4,9 @@
 作者: TalentSense Team
 功能描述: FastAPI 应用入口，负责路由挂载、启动事件、全局异常处理
 """
+import asyncio
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -44,32 +46,76 @@ async def lifespan(app: FastAPI):
 
     - 连接 MongoDB / Redis
     - 预热 Milvus Collection（避免首次解析时才连接/建表失败被吞掉）
-    - 重置上次异常中断遗留的 parsing 状态为 failed（参照 HRCopilot 启动兜底）
+    - 异步线程池预热 BGE-M3/Reranker/OCR 模型（不阻塞事件循环）
+    - 预热 MinIO 连接
+    - 重置上次异常中断遗留的 parsing 状态为 failed
     """
     from app.core.database import MongoDB, RedisClient
     await MongoDB.connect()
     await RedisClient.connect()
-    # 预热 Milvus：启动时即连接 + 确保 Collection 存在，失败仅警告不阻断启动
+    # 预热 Milvus：启动时即连接 + 确保 Collection 存在（同步IO，在线程池中执行避免阻塞）
     try:
         from app.core.milvus_client import milvus_client
-        milvus_client.ensure_collection()
+        await asyncio.to_thread(milvus_client.ensure_collection)
         logger.info("Milvus Collection 已就绪")
     except Exception as e:
         logger.warning(f"Milvus 预热失败，简历解析相关接口将不可用: {e}")
-    # 预热 BGE-M3 模型：避免首次上传简历时才加载导致解析很慢
+
+    def _preload_models():
+        """线程池中同步预热所有模型，避免阻塞事件循环"""
+        # BGE-M3 Embedding
+        try:
+            from app.core.embedding import embedding_model
+            _ = embedding_model.model
+            logger.info("BGE-M3 模型已预热")
+        except Exception as e:
+            logger.warning(f"BGE-M3 预热失败: {e}")
+        # BGE-Reranker
+        try:
+            from app.core.reranker import reranker_model
+            _ = reranker_model.model
+            logger.info("BGE-Reranker 模型已预热")
+        except Exception as e:
+            logger.warning(f"BGE-Reranker 预热失败: {e}")
+        # RapidOCR
+        try:
+            from app.core.ocr import ocr_engine
+            _ = ocr_engine.engine
+            logger.info("RapidOCR 引擎已预热")
+        except Exception as e:
+            logger.warning(f"RapidOCR 预热失败: {e}")
+        # MinIO 连接 + bucket 检查
+        try:
+            from app.core.minio_client import minio_client
+            _ = minio_client.client
+            logger.info("MinIO 客户端已预热")
+        except Exception as e:
+            logger.warning(f"MinIO 预热失败: {e}")
+
+    # 模型预热放到后台线程池，不阻塞应用启动（yield后后台继续加载）
+    preload_task = asyncio.create_task(asyncio.to_thread(_preload_models))
+
+    # 创建 MongoDB 索引
     try:
-        from app.core.embedding import embedding_model
-        _ = embedding_model.model  # 触发懒加载
-        logger.info("BGE-M3 模型已预热")
+        from app.core.database import MongoDB
+        if MongoDB.db is not None:
+            await MongoDB.db.resumes.create_index("user_id")
+            await MongoDB.db.resumes.create_index("parse_info.parse_status")
+            await MongoDB.db.resumes.create_index([("created_at", -1)])
+            await MongoDB.db.resumes.create_index([("education_level", 1), ("work_years", 1)])
+            await MongoDB.db.chat_sessions.create_index([("user_id", 1), ("updated_at", -1)])
+            await MongoDB.db.chat_messages.create_index("session_id")
+            await MongoDB.db.email_templates.create_index("template_id", unique=True)
+            logger.info("MongoDB 索引已就绪")
     except Exception as e:
-        logger.warning(f"BGE-M3 预热失败，首次解析将较慢: {e}")
+        logger.warning(f"MongoDB 索引创建失败（可能已存在）: {e}")
+
     # 自动初始化管理员账号
     try:
         from app.services.auth_service import AuthService
         admin_username = settings.ADMIN_USERNAME
         exists = await MongoDB.db.users.find_one({"username": admin_username})
         if exists:
-            # 回填早期建库时缺失的 email/name 字段（邮箱登录改造的迁移兜底）
             need_backfill = {}
             if not exists.get("email"):
                 need_backfill["email"] = settings.ADMIN_EMAIL
@@ -107,7 +153,7 @@ async def lifespan(app: FastAPI):
         logger.info("预置邮件模板已就绪")
     except Exception as e:
         logger.warning(f"预置邮件模板初始化失败: {e}")
-    # 重置遗留的 parsing 状态（进程上次崩溃会导致简历永久卡 parsing）
+    # 重置遗留的 parsing 状态
     try:
         await MongoDB.db.resumes.update_many(
             {"parse_info.parse_status": "parsing"},
@@ -115,8 +161,13 @@ async def lifespan(app: FastAPI):
         )
     except Exception as e:
         logger.warning(f"重置遗留 parsing 状态失败: {e}")
-    logger.info("应用启动完成")
+    logger.info("应用启动完成（模型在后台预热中）")
     yield
+    # 关闭时等待预热线程完成
+    try:
+        await asyncio.wait_for(preload_task, timeout=5)
+    except Exception:
+        pass
     await MongoDB.disconnect()
     logger.info("应用已关闭")
 
@@ -126,11 +177,19 @@ app = FastAPI(title=settings.APP_NAME, version="2.5.0", lifespan=lifespan, defau
 
 @app.middleware("http")
 async def trace_middleware(request: Request, call_next):
-    """注入 trace_id 到每个请求"""
+    """注入 trace_id + 记录请求耗时"""
     tid = request.headers.get("X-Trace-Id") or bind_trace_id()
     bind_trace_id(tid)
+    start = time.perf_counter()
     response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Trace-Id"] = tid
+    response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
+    # 只记录较慢的请求(>200ms)，避免日志过多
+    if elapsed_ms > 200:
+        logger.warning(f"慢请求: {request.method} {request.url.path} - {elapsed_ms:.1f}ms")
+    elif request.url.path not in ("/health",):
+        logger.debug(f"{request.method} {request.url.path} - {elapsed_ms:.1f}ms")
     return response
 
 

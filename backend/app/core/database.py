@@ -56,8 +56,15 @@ class RedisClient:
 
     @classmethod
     async def connect(cls):
+        """建立连接池并执行ping预热实际连接"""
         cls.pool = redis.ConnectionPool.from_url(settings.REDIS_URL)
-        logger.info("Redis 已连接")
+        # 执行 PING 命令强制建立 TCP 连接，避免首次请求时连接延迟
+        try:
+            client = redis.Redis(connection_pool=cls.pool)
+            await client.ping()
+            logger.info("Redis 已连接")
+        except Exception as e:
+            logger.warning(f"Redis 连接失败: {e}")
 
     @classmethod
     def get_client(cls) -> redis.Redis:

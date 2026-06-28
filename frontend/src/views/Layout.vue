@@ -27,31 +27,31 @@
         :collapse-transition="false"
         router
       >
-        <el-menu-item index="/workbench">
+        <el-menu-item index="/workbench" @mouseenter="handleMenuHover('/workbench')">
           <el-icon><ChatDotRound /></el-icon>
           <template #title>工作台</template>
         </el-menu-item>
-        <el-menu-item index="/resumes">
+        <el-menu-item index="/resumes" @mouseenter="handleMenuHover('/resumes')">
           <el-icon><Document /></el-icon>
           <template #title>简历库</template>
         </el-menu-item>
-        <el-menu-item index="/jd-match">
+        <el-menu-item index="/jd-match" @mouseenter="handleMenuHover('/jd-match')">
           <el-icon><Connection /></el-icon>
           <template #title>JD 匹配</template>
         </el-menu-item>
-        <el-menu-item index="/email">
+        <el-menu-item index="/email" @mouseenter="handleMenuHover('/email')">
           <el-icon><Promotion /></el-icon>
           <template #title>邮件中心</template>
         </el-menu-item>
-        <el-menu-item index="/dashboard">
+        <el-menu-item index="/dashboard" @mouseenter="handleMenuHover('/dashboard')">
           <el-icon><DataLine /></el-icon>
           <template #title>数据看板</template>
         </el-menu-item>
-        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/settings">
+        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/settings" @mouseenter="handleMenuHover('/settings')">
           <el-icon><Setting /></el-icon>
           <template #title>设置</template>
         </el-menu-item>
-        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/users">
+        <el-menu-item v-if="authStore.user?.role === 'admin'" index="/users" @mouseenter="handleMenuHover('/users')">
           <el-icon><UserFilled /></el-icon>
           <template #title>用户管理</template>
         </el-menu-item>
@@ -105,6 +105,7 @@
 /**
  * Layout 主布局
  * 整合 useAppStore（折叠态）与 useAuthStore（用户信息/退出登录）
+ * 支持菜单悬停预加载路由组件，提升页面切换速度
  */
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -128,9 +129,28 @@ const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
+/** 已预加载的路由集合（避免重复加载） */
+const preloadedRoutes = new Set<string>()
+
+/**
+ * 鼠标悬停时预加载路由组件
+ * 在用户点击菜单项前提前加载 JS chunk，消除点击延迟感
+ * @param path 路由路径
+ */
+function handleMenuHover(path: string): void {
+  if (preloadedRoutes.has(path)) return
+  const found = router.resolve(path)
+  if (found?.matched.length) {
+    const component = found.matched[found.matched.length - 1].components?.default
+    if (typeof component === 'function') {
+      component()
+      preloadedRoutes.add(path)
+    }
+  }
+}
+
 /** 当前激活的菜单（用于高亮） */
 const activeMenu = computed(() => {
-  // 详情页 /resumes/:id 也高亮"简历库"
   if (route.path.startsWith('/resumes')) return '/resumes'
   return route.path
 })

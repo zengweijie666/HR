@@ -6,7 +6,7 @@
 -->
 <template>
   <router-view v-slot="{ Component }">
-    <transition name="page" mode="out-in">
+    <transition name="page">
       <component :is="Component" />
     </transition>
   </router-view>
@@ -16,16 +16,17 @@
 </script>
 
 <style>
-.page-enter-active,
+.page-enter-active {
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
 .page-leave-active {
-  transition: opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
+  transition: opacity 0.15s ease-in;
 }
 .page-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(4px);
 }
 .page-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
 }
 </style>

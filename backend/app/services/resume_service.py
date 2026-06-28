@@ -17,6 +17,8 @@ from app.core.logger import logger
 from app.core.minio_client import minio_client
 from app.core.ocr import ocr_engine
 from app.core.llm_client import llm_client
+from app.core.embedding import embedding_model
+from app.core.vector_store import vector_store
 from app.core.database import MongoDB
 from app.utils.pii import mask_phone, mask_email, hash_phone, hash_email
 from app.utils.dedup import DedupChecker
@@ -31,12 +33,9 @@ class ResumeService:
         self.minio = minio_client
         self.ocr = ocr_engine
         self.llm = llm_client
-        # embedding/reranker/vector_store 后续注入
-        from app.core.embedding import embedding_model
-        from app.core.vector_store import vector_store
         self.embedding = embedding_model
         self.vector_store = vector_store
-        self.dedup_checker = None  # 默认在 _parse_and_index 内按需创建
+        self.dedup_checker = None
 
     @property
     def resumes_coll(self):
