@@ -43,10 +43,13 @@ vi.mock('@/api/dashboard', () => ({
 }))
 
 import Dashboard from '@/views/Dashboard.vue'
+import { ElMessage } from 'element-plus'
+import { getStats } from '@/api/dashboard'
 
 describe('views/Dashboard', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('渲染看板容器 .page-dashboard', async () => {
@@ -83,5 +86,101 @@ describe('views/Dashboard', () => {
     await flushPromises()
     const charts = wrapper.findAllComponents({ name: 'ChartWidget' })
     expect(charts.length).toBe(7)
+  })
+
+  // ===== 以下为补充用例：覆盖接口失败/加载状态/图表初始化/空数据/窗口 resize =====
+
+  it('接口失败时显示错误提示', async () => {
+    const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({}))
+    vi.mocked(getStats).mockRejectedValueOnce(new Error('网络连接失败'))
+    mount(Dashboard)
+    await flushPromises()
+    expect(errorSpy).toHaveBeenCalledWith('网络连接失败')
+    errorSpy.mockRestore()
+  })
+
+  it('加载中显示 loading 遮罩，加载完成后消失', async () => {
+    let resolveStats!: (v: unknown) => void
+    vi.mocked(getStats).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStats = resolve as (v: unknown) => void
+      }),
+    )
+    const wrapper = mount(Dashboard)
+    await flushPromises()
+    // loading 中显示遮罩
+    expect(wrapper.find('.loading-overlay').exists()).toBe(true)
+    // 解析后遮罩消失
+    resolveStats({
+      total_resumes: 0,
+      favorite_count: 0,
+      parsing_count: 0,
+      total_sessions: 0,
+      top_skills: [],
+      education_distribution: [],
+      salary_distribution: [],
+      recruitment_funnel: [],
+      resume_trend: [],
+      work_years_distribution: [],
+      interview_result_distribution: [],
+    })
+    await flushPromises()
+    expect(wrapper.find('.loading-overlay').exists()).toBe(false)
+  })
+
+  it('图表初始化调用 echarts init 和 setOption', async () => {
+    const echarts = await import('echarts')
+    // 为第一个 ChartWidget 返回带 spy 的 chart 实例
+    const setOptionSpy = vi.fn()
+    vi.mocked(echarts.init).mockReturnValueOnce({
+      setOption: setOptionSpy,
+      resize: vi.fn(),
+      dispose: vi.fn(),
+    } as never)
+    mount(Dashboard)
+    await flushPromises()
+    // echarts.init 被调用（每个 ChartWidget 调用一次）
+    expect(echarts.init).toHaveBeenCalled()
+    // setOption 在 onMounted 中被调用
+    expect(setOptionSpy).toHaveBeenCalled()
+  })
+
+  it('空数据场景下统计卡片显示 0 且页面正常渲染', async () => {
+    vi.mocked(getStats).mockResolvedValueOnce({
+      total_resumes: 0,
+      favorite_count: 0,
+      parsing_count: 0,
+      total_sessions: 0,
+      top_skills: [],
+      education_distribution: [],
+      salary_distribution: [],
+      recruitment_funnel: [],
+      resume_trend: [],
+      work_years_distribution: [],
+      interview_result_distribution: [],
+    })
+    const wrapper = mount(Dashboard)
+    await flushPromises()
+    // 4 个统计卡片均显示 0
+    const nums = wrapper.findAll('.stat-card__num').map((n) => n.text())
+    expect(nums).toEqual(['0', '0', '0', '0'])
+    // 页面容器与图表卡片仍正常渲染
+    expect(wrapper.find('.page-dashboard').exists()).toBe(true)
+    expect(wrapper.findAllComponents({ name: 'ChartWidget' }).length).toBe(7)
+  })
+
+  it('窗口 resize 触发图表 resize', async () => {
+    const echarts = await import('echarts')
+    const resizeSpy = vi.fn()
+    vi.mocked(echarts.init).mockReturnValueOnce({
+      setOption: vi.fn(),
+      resize: resizeSpy,
+      dispose: vi.fn(),
+    } as never)
+    mount(Dashboard)
+    await flushPromises()
+    // 派发 resize 事件，ChartWidget 内 handleResize 调用 chart.resize()
+    window.dispatchEvent(new Event('resize'))
+    expect(resizeSpy).toHaveBeenCalled()
   })
 })

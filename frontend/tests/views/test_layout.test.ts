@@ -8,7 +8,7 @@
  *   - 折叠按钮 .collapse-btn 点击切换折叠态
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 
 const pushMock = vi.fn()
@@ -37,7 +37,9 @@ const mountOptions = {
 describe('views/Layout', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    pushMock.mockClear()
+    pushMock.mockReset()
+    // el-menu 内部调用 router.push(route).then(...)，push 必须返回 Promise
+    pushMock.mockResolvedValue(undefined)
   })
 
   it('渲染侧边栏与顶栏', () => {
@@ -80,5 +82,72 @@ describe('views/Layout', () => {
     auth.logout()
     const wrapper = mount(Layout, mountOptions)
     expect(wrapper.find('.header__username').text()).toBe('未登录')
+  })
+
+  it('hr 角色不显示设置菜单', () => {
+    const auth = useAuthStore()
+    auth.user = {
+      user_id: 'u1',
+      name: 'hr',
+      username: 'hr',
+      email: 'hr@test.com',
+      role: 'hr',
+    } as never
+    const wrapper = mount(Layout, mountOptions)
+    expect(wrapper.find('.sidebar').text()).not.toContain('设置')
+  })
+
+  it('hr 角色不显示用户管理菜单', () => {
+    const auth = useAuthStore()
+    auth.user = {
+      user_id: 'u1',
+      name: 'hr',
+      username: 'hr',
+      email: 'hr@test.com',
+      role: 'hr',
+    } as never
+    const wrapper = mount(Layout, mountOptions)
+    expect(wrapper.find('.sidebar').text()).not.toContain('用户管理')
+  })
+
+  it('点击菜单项触发路由跳转', async () => {
+    const routerMountOptions = {
+      global: {
+        stubs: { 'router-view': true },
+        config: {
+          globalProperties: {
+            $router: { push: pushMock },
+          },
+        },
+      },
+    }
+    const wrapper = mount(Layout, routerMountOptions)
+    const menuItems = wrapper.findAll('.el-menu-item')
+    const resumeItem = menuItems.find((item) =>
+      item.text().includes('简历库')
+    )
+    expect(resumeItem).toBeTruthy()
+    await resumeItem!.trigger('click')
+    await flushPromises()
+    expect(pushMock).toHaveBeenCalledWith('/resumes')
+  })
+
+  it('顶栏显示已登录用户名', () => {
+    const auth = useAuthStore()
+    auth.user = {
+      user_id: 'u1',
+      name: '张三',
+      username: 'zhangsan',
+      email: 'zhangsan@test.com',
+      role: 'admin',
+    } as never
+    const wrapper = mount(Layout, mountOptions)
+    expect(wrapper.find('.header__username').text()).toBe('张三')
+  })
+
+  it('退出登录按钮存在', () => {
+    const wrapper = mount(Layout, mountOptions)
+    const allText = wrapper.text() + (document.body.textContent || '')
+    expect(allText).toContain('退出登录')
   })
 })

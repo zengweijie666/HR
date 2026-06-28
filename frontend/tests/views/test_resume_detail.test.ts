@@ -76,10 +76,19 @@ vi.mock('@/api/resume', () => ({
 }))
 
 import ResumeDetail from '@/views/ResumeDetail.vue'
+import {
+  getResumeDetail,
+  getPreviewUrl,
+  toggleFavorite,
+  updateNotes,
+  updateTags,
+} from '@/api/resume'
+import { useAuthStore } from '@/stores/auth'
 
 describe('views/ResumeDetail', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('渲染详情页容器 .page-resume-detail', async () => {
@@ -128,5 +137,97 @@ describe('views/ResumeDetail', () => {
     const contactText = wrapper.find('.detail-card__contact').text()
     expect(contactText).toContain('13800138000')
     expect(contactText).toContain('zhangsan@test.com')
+  })
+
+  // ===== 以下为补充用例：覆盖收藏/备注/标签/预览/脱敏/解析失败 =====
+
+  it('点击收藏按钮触发 toggleFavorite 调用', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    // 初始 is_favorite=false，按钮文案为"收藏"
+    const favBtn = wrapper
+      .findAll('button')
+      .find((b) => /收藏/.test(b.text() || ''))
+    expect(favBtn).toBeTruthy()
+    await favBtn!.trigger('click')
+    await flushPromises()
+    expect(toggleFavorite).toHaveBeenCalledWith('r1', true)
+  })
+
+  it('编辑备注后失焦保存触发 updateNotes 调用', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    // 找到备注 textarea（页面内唯一 textarea）
+    const textarea = wrapper.find('textarea')
+    expect(textarea.exists()).toBe(true)
+    await textarea.setValue('该候选人技术扎实，推荐进入下一轮')
+    await textarea.trigger('blur')
+    await flushPromises()
+    expect(updateNotes).toHaveBeenCalledWith('r1', '该候选人技术扎实，推荐进入下一轮')
+  })
+
+  it('添加标签触发 updateTags 调用', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    // 找到 TagInput 组件并触发 update:modelValue
+    const tagInput = wrapper.findComponent({ name: 'TagInput' })
+    expect(tagInput.exists()).toBe(true)
+    await tagInput.vm.$emit('update:modelValue', ['前端', '高潜'])
+    await flushPromises()
+    expect(updateTags).toHaveBeenCalledWith('r1', ['前端', '高潜'])
+  })
+
+  it('挂载时触发 getPreviewUrl 调用并渲染预览 iframe', async () => {
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    expect(getPreviewUrl).toHaveBeenCalledWith('r1')
+    // PDF 类型渲染 iframe，src 为返回的预览地址
+    const frame = wrapper.find('.resume-preview__frame')
+    expect(frame.exists()).toBe(true)
+    expect(frame.attributes('src')).toBe('http://example.com/r1.pdf')
+  })
+
+  it('非 admin 用户看到脱敏联系方式', async () => {
+    // 设置 authStore user.role='hr'，模拟非 admin 用户
+    const authStore = useAuthStore()
+    authStore.setUser({
+      user_id: 'u2',
+      username: 'hr_user',
+      role: 'hr',
+    })
+    expect(authStore.user?.role).toBe('hr')
+    // 后端对非 admin 用户仅返回脱敏字段（无原始 phone/email）
+    vi.mocked(getResumeDetail).mockResolvedValueOnce({
+      ...detailMock,
+      basic_info: {
+        name: '张三',
+        phone_masked: '138****8888',
+        email_masked: 'z***@x.com',
+        gender: '男',
+        age: 28,
+        location: '上海',
+      },
+    })
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    const contactText = wrapper.find('.detail-card__contact').text()
+    expect(contactText).toContain('138****8888')
+    expect(contactText).toContain('z***@x.com')
+    expect(contactText).not.toContain('13800138000')
+  })
+
+  it('parse_status 为 failed 时仍能正常展示候选人信息', async () => {
+    vi.mocked(getResumeDetail).mockResolvedValueOnce({
+      ...detailMock,
+      parse_status: 'failed' as const,
+      parse_info: { parse_status: 'failed' },
+    })
+    const wrapper = mount(ResumeDetail)
+    await flushPromises()
+    // 页面正常渲染，不崩溃
+    expect(wrapper.find('.page-resume-detail').exists()).toBe(true)
+    expect(wrapper.find('.detail-card__name').text()).toBe('张三')
+    // 摘要等区域仍可展示
+    expect(wrapper.find('.detail-card__summary').exists()).toBe(true)
   })
 })

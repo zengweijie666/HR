@@ -162,6 +162,10 @@ async function loadConfig(): Promise<void> {
  * 保存邮件配置
  */
 async function handleSave(): Promise<void> {
+  if (!form.smtp_host.trim()) {
+    ElMessage.warning('请填写 SMTP 主机')
+    return
+  }
   saving.value = true
   try {
     const payload: Partial<EmailConfig> = {
