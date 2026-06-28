@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.log
+test_perf.py
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# 环境配置（含敏感信息）
+.env
+.env.local
+.env.*.local
+
+# Docker volumes 数据
+docker-data/
+
+# 模型文件（体积大）
+backend/models/
+
+# 临时文件
+*.tmp
+*.swp
+*~
