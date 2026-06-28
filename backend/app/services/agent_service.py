@@ -145,12 +145,16 @@ class AgentService:
         history = doc.get("messages", [])[-10:] if doc else []
         message_id = f"m_{uuid.uuid4().hex[:16]}"
 
+        # 从历史消息中提取最近一次候选人列表（供 compare/detail/qa 复用，避免重复检索）
+        last_candidates = self._extract_last_candidates(history)
+
         state = make_state(
             query=query,
             session_id=session_id,
             history=history,
             filters=filters,
             user_id=user_id,
+            last_candidates=last_candidates,
         )
 
         try:
@@ -162,9 +166,39 @@ class AgentService:
                 "strategy": state.get("strategy"),
             })
 
-            # 2. 检索事件（所有非 chitchat/qa 意图都需要检索：search/compare/detail）
+            # 2. 检索事件
+            # - search: 始终触发新检索
+            # - compare/qa/detail: 优先复用历史 candidates，无历史时才触发新检索
             intent_type = state.get("intent_type")
-            if intent_type in ("search", "compare", "detail"):
+            need_retrieve = False
+            if intent_type == "search":
+                need_retrieve = True
+            elif intent_type in ("compare", "detail"):
+                # 从历史 candidates 中筛选被提及的候选人
+                matched = self._match_candidates_by_query(query, last_candidates)
+                if intent_type == "compare":
+                    if len(matched) >= 2:
+                        state["candidates"] = matched
+                    elif len(matched) == 1:
+                        state["candidates"] = last_candidates[:10]
+                    elif last_candidates:
+                        # 有历史 candidates 但姓名匹配失败（如"对比一下他们"），复用全部历史
+                        state["candidates"] = last_candidates[:10]
+                    else:
+                        need_retrieve = True
+                elif intent_type == "detail":
+                    if matched:
+                        state["candidates"] = matched
+                    elif last_candidates:
+                        state["candidates"] = last_candidates[:10]
+                    else:
+                        need_retrieve = True
+            elif intent_type == "qa":
+                # qa 带上历史 candidates 作为上下文（不新检索），让 LLM 能解释评分差异
+                state["candidates"] = last_candidates
+                need_retrieve = False
+
+            if need_retrieve:
                 retrieve_result = await retrieve_rank_node(state)
                 state.update(retrieve_result)
                 candidates = state.get("candidates", [])
@@ -178,8 +212,12 @@ class AgentService:
                         for c in candidates
                     ]
                     yield _sse_event("rank", {"ranked": ranked})
-                # 无论是否为空都 yield candidates 事件，便于前端区分'没触发检索'和'检索为空'
                 yield _sse_event("candidates", candidates)
+            else:
+                # 复用历史/筛选结果，也发 candidates 事件让前端更新卡片
+                candidates = state.get("candidates", [])
+                if candidates:
+                    yield _sse_event("candidates", candidates)
 
             # 3. 流式 token（将检索到的候选人作为上下文传入，LLM 基于 RAG 结果回答）
             full_response = ""
@@ -188,13 +226,13 @@ class AgentService:
 
             # 构建回答 messages
             if intent_type in ("search", "compare", "detail") and candidates:
-                from app.agent.prompts import SEARCH_RESPOND_PROMPT, DETAIL_PROMPT
+                from app.agent.prompts import SEARCH_RESPOND_PROMPT, DETAIL_PROMPT, COMPARE_PROMPT
                 if intent_type == "detail":
                     target_candidate = None
                     for c in candidates:
                         cid = c.get("candidate_id", "")
-                        name = c.get("name", "")
-                        if (cid and cid in query) or (name and name in query):
+                        c_name = c.get("name", "")
+                        if (cid and cid in query) or (c_name and self._name_in_query(c_name, query)):
                             target_candidate = c
                             break
                     if target_candidate:
@@ -219,6 +257,30 @@ class AgentService:
                             query=query,
                             candidates=json.dumps(candidates[:10], ensure_ascii=False),
                         )
+                elif intent_type == "compare":
+                    matched_names = self._extract_names_from_query(query)
+                    compare_candidates = candidates
+                    if matched_names:
+                        exact_matched = [
+                            c for c in candidates
+                            if c.get("name", "") in matched_names
+                        ]
+                        if exact_matched:
+                            compare_candidates = exact_matched
+                        else:
+                            compare_candidates = candidates[:10]
+                    system_prompt = (
+                        "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
+                        "1. 只能使用提供的候选人数据对比，绝对禁止编造信息\n"
+                        "2. 从工作年限、核心技能、项目经验、学历、评分等维度对比\n"
+                        "3. 给出明确结论：各自优势、推荐优先级\n"
+                        "4. 评分差异必须解释原因\n"
+                        "5. 用中文专业简洁回答\n"
+                    )
+                    user_prompt = COMPARE_PROMPT.format(
+                        query=query,
+                        candidates=json.dumps(compare_candidates[:10], ensure_ascii=False),
+                    )
                 else:
                     system_prompt = (
                         "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
@@ -250,13 +312,25 @@ class AgentService:
                     {"role": "user", "content": chitchat_prompt},
                 ]
             elif intent_type == "qa":
-                # qa 分支：通用问答（HR 知识/系统使用/通用问题），跳过检索，走 QA_PROMPT
+                # qa 分支：通用问答，如有历史候选人数据则带上作为上下文
                 from app.agent.prompts import QA_PROMPT
-                qa_prompt = QA_PROMPT.format(query=query)
-                messages = [
-                    {"role": "system", "content": "你是 TalentSense 智能招聘助手。回答 HR 流程咨询、系统使用帮助、通用知识问答。不编造候选人信息。"},
-                    {"role": "user", "content": qa_prompt},
-                ]
+                if candidates:
+                    qa_prompt = QA_PROMPT.format(query=query)
+                    messages = [
+                        {"role": "system", "content": (
+                            "你是 TalentSense 智能招聘助手。回答 HR 流程咨询、系统使用帮助、候选人评分解释等问题。\n"
+                            "以下是当前会话中最近检索到的候选人数据，可用于回答评分/对比等问题，"
+                            "但禁止编造不存在的候选人信息：\n"
+                            + json.dumps(candidates[:10], ensure_ascii=False)
+                        )},
+                        {"role": "user", "content": qa_prompt},
+                    ]
+                else:
+                    qa_prompt = QA_PROMPT.format(query=query)
+                    messages = [
+                        {"role": "system", "content": "你是 TalentSense 智能招聘助手。回答 HR 流程咨询、系统使用帮助、通用知识问答。不编造候选人信息。"},
+                        {"role": "user", "content": qa_prompt},
+                    ]
             else:
                 messages = [
                     {"role": "system", "content": "你是 TalentSense HR 招聘助手。"},
@@ -376,6 +450,106 @@ class AgentService:
             except Exception as inner_e:
                 logger.error(f"消息保存兜底也失败: {inner_e}")
         return {"title": new_title}
+
+    @staticmethod
+    def _extract_last_candidates(history: list[dict]) -> list[dict]:
+        """从对话历史中提取最近一次 assistant 消息中的 candidates
+
+        入参:
+            history: 对话消息列表（从 MongoDB 读取）
+        出参:
+            最近一次候选人列表，无则返回空列表
+        """
+        for msg in reversed(history):
+            if msg.get("role") == "assistant" and msg.get("candidates"):
+                return msg["candidates"]
+        return []
+
+    @staticmethod
+    def _extract_names_from_query(query: str) -> list[str]:
+        """从用户查询中提取中文姓名（优先从已知候选人名单匹配，fallback 用正则）
+
+        入参:
+            query: 用户查询文本，如"对比李志鹏和温佳蕊"
+        出参:
+            姓名列表，如 ["李志鹏", "温佳蕊"]
+        设计:
+            不直接用 r'[\u4e00-\u9fa5]{2,4}' 贪婪匹配（会把"对比李志"也截出来），
+            而是由 _match_candidates_by_query 中根据 candidates 名单做精确匹配。
+            此方法仅返回通用正则结果，实际姓名匹配优先走候选名单匹配。
+        """
+        import re
+        # 先去掉常见连接词和动词前缀，避免"对比李志"被截出
+        cleaned = re.sub(r'(对比|比较|和|与|跟|看看|查询|详情|介绍|谁|哪个|为什么|评分|比)', ' ', query)
+        # 匹配2-3个连续汉字（中文姓名通常2-3字），过滤掉4字以上的词（通常是词组）
+        candidates = re.findall(r'[\u4e00-\u9fa5]{2,3}', cleaned)
+        # 过滤明显不是姓名的词
+        stop_words = {'什么', '怎么', '为什么', '请问', '可以', '一下', '这个', '那个', '工程师', '方向'}
+        return [n for n in candidates if n not in stop_words]
+
+    @staticmethod
+    def _name_in_query(name: str, query: str) -> bool:
+        """检查姓名是否出现在 query 中
+
+        入参:
+            name: 候选人姓名
+            query: 用户查询文本
+        出参:
+            True 表示姓名在 query 中
+        """
+        return name in query
+
+    @staticmethod
+    def _match_candidates_by_query(query: str, candidates: list[dict]) -> list[dict]:
+        """根据查询中的姓名匹配候选人列表
+
+        入参:
+            query: 用户查询文本
+            candidates: 候选人列表（从历史中提取）
+        出参:
+            匹配到的候选人列表（可能为空）
+        设计:
+            1. 优先从原始 query 直接查找候选人全名（c_name in query）
+            2. 消除歧义：如果短名是长名的子串且长名也在query中，丢弃短名
+               （避免"李志"误匹配"李志鹏"）
+            3. fallback 到正则提取姓名后精确匹配
+        """
+        if not candidates:
+            return []
+
+        # 第一轮：找出所有名字出现在 query 中的候选人
+        raw_matches = []
+        for c in candidates:
+            c_name = c.get("name", "")
+            if c_name and c_name in query:
+                raw_matches.append(c)
+
+        # 第二轮：消除歧义——如果短名是长名的子串且长名也匹配，保留长名
+        matched = []
+        for c in raw_matches:
+            c_name = c.get("name", "")
+            is_substring_of_other = False
+            for other in raw_matches:
+                other_name = other.get("name", "")
+                if other_name != c_name and c_name in other_name and other_name in query:
+                    is_substring_of_other = True
+                    break
+            if not is_substring_of_other:
+                matched.append(c)
+
+        if matched:
+            return matched
+
+        # fallback: 正则提取姓名后精确匹配
+        names = AgentService._extract_names_from_query(query)
+        seen = set()
+        for c in candidates:
+            c_name = c.get("name", "")
+            cid = c.get("candidate_id", "")
+            if c_name in names and cid not in seen:
+                matched.append(c)
+                seen.add(cid)
+        return matched
 
 
 agent_service = AgentService()

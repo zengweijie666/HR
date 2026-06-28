@@ -43,6 +43,7 @@ def make_state(
     history: list = None,
     filters: dict = None,
     user_id: str = "",
+    last_candidates: list = None,
 ) -> AgentState:
     """构造初始 AgentState
 
@@ -52,6 +53,7 @@ def make_state(
         history: 对话历史
         filters: 过滤条件
         user_id: 用户 ID
+        last_candidates: 上一轮检索到的候选人列表（供 compare/qa/detail 复用，避免重复检索）
     出参:
         完整初始化的 AgentState
     """
@@ -66,7 +68,7 @@ def make_state(
         rewrites=[],
         chunks=[],
         ranked=[],
-        candidates=[],
+        candidates=last_candidates or [],
         response="",
         message_id="",
         error=None,
