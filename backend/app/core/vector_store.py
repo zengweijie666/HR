@@ -39,7 +39,19 @@ class VectorStore:
         """复用全局 milvus_client 的 collection"""
         return milvus_client.collection
 
-    async def insert(self, children, dense, sparse, parents, resume_id: str):
+    async def insert(
+        self,
+        children,
+        dense,
+        sparse,
+        parents,
+        resume_id: str,
+        work_years: int = 0,
+        education_level: int = 1,
+        salary_min: int = 0,
+        salary_max: int = 0,
+        skills_text: str = "",
+    ):
         """插入子块向量
 
         入参:
@@ -48,21 +60,35 @@ class VectorStore:
             sparse: 稀疏向量列表（List[Dict[int,float]]，由 embedding 层转好原生类型）
             parents: Chunk 列表（父块，用于回溯 parent_content）
             resume_id: 简历 ID
+            work_years: 工作年限
+            education_level: 学历等级(0=专科/1=本科/2=硕士/3=博士)
+            salary_min: 期望薪资最低(K)
+            salary_max: 期望薪资最高(K)
+            skills_text: 技能文本拼接（用于稀疏检索）
         """
         def _truncate(s: str, n: int = 4000) -> str:
             return s[:n] if len(s) > n else s
 
+        def _truncate_skills(s: str, n: int = 2000) -> str:
+            return s[:n] if len(s) > n else s
+
         parent_content_map = {p.parent_id: _truncate(p.content) for p in parents}
+        safe_salary_min = max(0, int(salary_min or 0))
+        safe_salary_max = max(0, int(salary_max or 0))
+        safe_work_years = max(0, int(work_years or 0))
+        safe_edu = max(0, min(3, int(education_level or 1)))
+        safe_skills = _truncate_skills(skills_text or "")
+        n = len(children)
         data = [
             [c.chunk_id for c in children],
-            [resume_id] * len(children),
+            [resume_id] * n,
             dense,
             sparse,
-            [0] * len(children),
-            [0] * len(children),
-            [1] * len(children),
-            [0] * len(children),
-            [""] * len(children),
+            [safe_salary_min] * n,
+            [safe_salary_max] * n,
+            [safe_edu] * n,
+            [safe_work_years] * n,
+            [safe_skills] * n,
             [c.parent_id for c in children],
             [parent_content_map.get(c.parent_id, "") for c in children],
         ]

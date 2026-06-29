@@ -48,14 +48,22 @@ class CandidateService:
         # 用简历 summary 或 skills_text 作为查询
         query_text = doc.get("summary", "") or "、".join(doc.get("skills", []))
         dense, sparse = self.embedding.encode([query_text])
-        chunks = await self.vector_store.hybrid_search(dense, sparse, {}, top_k=top_k + 1)
+        # 扩大召回，避免多chunk导致候选人截断
+        retrieve_k = max((top_k + 1) * 5, 20)
+        chunks = await self.vector_store.hybrid_search(dense, sparse, {}, top_k=retrieve_k)
 
-        # Milvus candidate_id 字段存的是 resume_id
+        # Milvus candidate_id 字段存的是 resume_id；resume级去重，排除自己
         self_rid = resume_id
-        resume_ids = [
-            c["candidate_id"] for c in chunks
-            if c.get("candidate_id") and c["candidate_id"] != self_rid
-        ][:top_k]
+        seen: set[str] = set()
+        resume_ids: list[str] = []
+        for c in chunks:
+            rid = c.get("candidate_id", "")
+            if not rid or rid == self_rid or rid in seen:
+                continue
+            seen.add(rid)
+            resume_ids.append(rid)
+            if len(resume_ids) >= top_k:
+                break
         if not resume_ids:
             return []
         cursor = self.resumes_coll.find({"resume_id": {"$in": resume_ids}})

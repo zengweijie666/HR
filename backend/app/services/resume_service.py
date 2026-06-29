@@ -185,18 +185,28 @@ class ResumeService:
                     )
                     logger.info(f"简历 {resume_id} 重复，关联 {existing}")
                     return
-            # 8. 父子块切分
+            # 8. 提前解析 salary（Milvus 写入需要 scalar 字段）
+            salary = parse_salary(structured.get("salary", "")) or {"min": 0, "max": 0}
+            # 9. 父子块切分
             children, parents = split_parent_child(text)
-            # 9. BGE-M3 编码 + 10. 写入 Milvus（索引失败仅 warning，不拖垮 parse_status）
+            # 10. BGE-M3 编码 + 11. 写入 Milvus（索引失败仅 warning，不拖垮 parse_status）
             indexed = True
+            skills_list = structured.get("skills", []) or []
+            skills_text = " ".join(skills_list)
             try:
                 dense, sparse = self.embedding.encode([c.content for c in children])
-                await self.vector_store.insert(children, dense, sparse, parents, resume_id)
+                await self.vector_store.insert(
+                    children, dense, sparse, parents, resume_id,
+                    work_years=structured.get("work_years", 0),
+                    education_level=structured.get("education_level", 1),
+                    salary_min=salary.get("min", 0),
+                    salary_max=salary.get("max", 0),
+                    skills_text=skills_text,
+                )
             except Exception as idx_err:
                 indexed = False
                 logger.warning(f"简历 {resume_id} 向量索引失败（不影响结构化解析）: {idx_err}")
-            # 11. 更新 MongoDB 元数据
-            salary = parse_salary(structured.get("salary", "")) or {"min": 0, "max": 0}
+            # 12. 更新 MongoDB 元数据
             now = datetime.now(timezone.utc).isoformat()
             await self.resumes_coll.update_one(
                 {"resume_id": resume_id},

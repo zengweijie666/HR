@@ -110,6 +110,10 @@ def e2e_env():
     llm_chat_call_count = {"i": 0}
 
     async def _chat_side_effect(messages, **kwargs):
+        content = messages[0].get("content", "") if messages else ""
+        # 过滤条件提取：返回空JSON（不提取硬过滤条件）
+        if "过滤器提取器" in content or "education_min" in content:
+            return "{}"
         idx = llm_chat_call_count["i"]
         llm_chat_call_count["i"] += 1
         if idx < len(llm_chat_responses):

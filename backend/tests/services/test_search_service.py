@@ -20,8 +20,8 @@ def svc():
     s.reranker.rerank = MagicMock(return_value=[0.9, 0.5])
     s.vector_store = AsyncMock()
     s.vector_store.hybrid_search = AsyncMock(return_value=[
-        {"chunk_id": "c1", "candidate_id": "c1", "score": 0.9, "parent_content": "Java 5年经验"},
-        {"chunk_id": "c2", "candidate_id": "c2", "score": 0.5, "parent_content": "Python 3年经验"},
+        {"chunk_id": "c1", "candidate_id": "r1", "score": 0.9, "parent_content": "Java 5年经验"},
+        {"chunk_id": "c2", "candidate_id": "r2", "score": 0.5, "parent_content": "Python 3年经验"},
     ])
     s.strategy_selector = AsyncMock()
     s.strategy_selector.select = AsyncMock(return_value="direct")
@@ -43,8 +43,9 @@ async def test_search_basic(svc):
          "education": "本科", "education_level": 2, "expected_salary": {"min": 20, "max": 30},
          "tags": [], "is_favorite": False}
     ])
+    _score_json = json.dumps({"skill": 85, "experience": 80, "education": 75, "salary": 85, "overall": 0, "reason": "匹配度高"})
     with patch("app.services.search_service.llm_client") as mock_llm:
-        mock_llm.chat = AsyncMock(side_effect=["85", "匹配度高"])
+        mock_llm.chat = AsyncMock(side_effect=[_score_json])
         results = await svc.search("Java 5年", filters={}, top_k=10)
     assert len(results) >= 1
     assert results[0]["candidate_id"] == "c1"
@@ -77,18 +78,20 @@ async def test_search_cache(svc):
 async def test_search_rerank_order(svc):
     """AC13.4: Reranker 重排后按 score 降序"""
     svc.vector_store.hybrid_search = AsyncMock(return_value=[
-        {"chunk_id": "c1", "candidate_id": "c1", "score": 0.5, "parent_content": "doc1"},
-        {"chunk_id": "c2", "candidate_id": "c2", "score": 0.9, "parent_content": "doc2"},
+        {"chunk_id": "c1", "candidate_id": "r1", "score": 0.5, "parent_content": "doc1"},
+        {"chunk_id": "c2", "candidate_id": "r2", "score": 0.9, "parent_content": "doc2"},
     ])
     svc.reranker.rerank = MagicMock(return_value=[0.3, 0.95])
     svc.resumes_coll.find.return_value.to_list = AsyncMock(return_value=[
         {"candidate_id": "c2", "resume_id": "r2", "name": "李四"},
         {"candidate_id": "c1", "resume_id": "r1", "name": "张三"},
     ])
+    _score_high = json.dumps({"skill": 90, "experience": 85, "education": 75, "salary": 80, "overall": 0, "reason": "好"})
+    _score_low = json.dumps({"skill": 60, "experience": 50, "education": 75, "salary": 80, "overall": 0, "reason": "差"})
     with patch("app.services.search_service.llm_client") as mock_llm:
-        mock_llm.chat = AsyncMock(side_effect=["90", "好", "60", "差"])
+        mock_llm.chat = AsyncMock(side_effect=[_score_high, _score_low])
         results = await svc.search("Java", filters={}, top_k=10)
-    # rerank 后 c2 (0.95) 在前；_enrich 后顺序保持
+    # rerank 后 r2 (0.95) 在前；_enrich 后顺序保持
     assert results[0]["candidate_id"] == "c2"
 
 
@@ -132,17 +135,18 @@ async def test_llm_score_multi_fallback_rerank():
 
 @pytest.mark.asyncio
 async def test_llm_score_multi_fallback_zero():
-    """_llm_score_multi JSON 解析失败应全 0 兜底"""
+    """_llm_score_multi JSON 解析失败应回退到 rerank_score 兜底（而非全0，保证排序稳定性）"""
     svc = SearchService()
     with patch("app.services.search_service.llm_client") as mock_llm:
         mock_llm.chat = AsyncMock(return_value="not a json")
         result = await svc._llm_score_multi("前端工程师", {"name": "张三"}, 0.8)
-    assert result["skill"] == 0
-    assert result["experience"] == 0
-    assert result["education"] == 0
-    assert result["salary"] == 0
-    assert result["overall"] == 0
-    assert "暂不可用" in result["reason"]
+    # JSON 解析失败时回退 rerank_score*100，所有维度=80，overall=80
+    assert result["skill"] == 80
+    assert result["experience"] == 80
+    assert result["education"] == 80
+    assert result["salary"] == 80
+    assert result["overall"] == 80
+    assert "语义相似度" in result["reason"]
 
 
 @pytest.mark.asyncio

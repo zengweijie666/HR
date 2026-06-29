@@ -62,7 +62,7 @@ def chat_env():
             "education": "本科",
             "education_level": 1,
             "work_years": 4,
-            "skills": ["Transformer", "BERT", "RoBERTa", "LSTM", "Dify"],
+            "skills": ["NLP", "Transformer", "BERT", "RoBERTa", "LSTM", "Dify"],
             "work_experience": [
                 {"company": "某AI公司", "position": "NLP工程师", "description": "负责BERT模型微调和部署"}
             ],
@@ -84,7 +84,7 @@ def chat_env():
             "education": "本科",
             "education_level": 1,
             "work_years": 0,
-            "skills": ["BERT", "FastText", "jieba", "PyTorch", "transformers"],
+            "skills": ["NLP", "BERT", "FastText", "jieba", "PyTorch", "transformers"],
             "work_experience": [],
             "education_detail": [{"school": "某大学", "major": "人工智能", "degree": "本科"}],
             "projects": [{"name": "情感分析项目", "description": "使用FastText和BERT做中文情感分析"}],
@@ -120,17 +120,33 @@ def chat_env():
         },
     ])
 
-    # LLM mock：可动态调整返回值
+    # LLM mock：智能识别 prompt 类型，返回对应响应
+    # 评分响应通过 score_responses 队列消费（测试用 [:] = [...] 设置）
     llm_mock = AsyncMock()
-    llm_chat_responses = []
-    llm_chat_call_count = {"i": 0}
+    score_responses = []
+    score_idx = {"i": 0}
+    # 允许测试覆盖默认意图（默认 "search"）
+    default_intent = {"value": "search"}
 
     async def _chat_side_effect(messages, **kwargs):
-        idx = llm_chat_call_count["i"]
-        llm_chat_call_count["i"] += 1
-        if idx < len(llm_chat_responses):
-            resp = llm_chat_responses[idx]
-            return resp
+        content = messages[0].get("content", "") if messages else ""
+        # 意图识别
+        if "意图分类器" in content or "只返回意图名" in content:
+            return default_intent["value"]
+        # 过滤条件提取
+        if "过滤器提取器" in content or "education_min" in content:
+            return "{}"
+        # 澄清
+        if "没找到匹配" in content:
+            return "请提供更多细节"
+        # 评分（skill/experience/education/salary JSON）— 消费队列
+        if "评分维度" in content or "skill" in content and "experience" in content:
+            if score_idx["i"] < len(score_responses):
+                resp = score_responses[score_idx["i"]]
+                score_idx["i"] += 1
+                return resp
+            return json.dumps({"skill": 70, "experience": 60, "education": 75, "salary": 80,
+                               "overall": 0, "reason": "默认评分"})
         return "ok"
 
     llm_mock.chat = AsyncMock(side_effect=_chat_side_effect)
@@ -145,16 +161,28 @@ def chat_env():
     embedding_mock = MagicMock()
     embedding_mock.encode = MagicMock(return_value=([[0.1] * 1024], [{"key": 0.1}]))
 
-    # Reranker mock
+    # Reranker mock：根据候选人内容返回匹配度分数（4年经验>NLP标签>应届生）
     reranker_mock = MagicMock()
-    reranker_mock.rerank = MagicMock(return_value=[0.95, 0.80, 0.70])
+    def _rerank_side_effect(query, texts):
+        scores = []
+        for t in texts or []:
+            if "毛光铭" in t or "BERT Transformer" in t:
+                scores.append(0.95)
+            elif "温佳蕊" in t or "NLP" in t:
+                scores.append(0.85)
+            elif "李志鹏" in t or "FastText" in t:
+                scores.append(0.72)
+            else:
+                scores.append(0.5)
+        return scores
+    reranker_mock.rerank = MagicMock(side_effect=_rerank_side_effect)
 
-    # VectorStore mock：返回3名NLP候选人
+    # VectorStore mock：返回3名NLP候选人（vector相似度顺序；reranker会重排）
     vector_store_mock = AsyncMock()
     vector_store_mock.hybrid_search = AsyncMock(return_value=[
-        {"chunk_id": "ck1", "candidate_id": "res_maogm", "score": 0.95, "parent_content": "BERT Transformer NLP"},
-        {"chunk_id": "ck2", "candidate_id": "res_lizp", "score": 0.80, "parent_content": "BERT FastText NLP"},
-        {"chunk_id": "ck3", "candidate_id": "res_wenjr", "score": 0.70, "parent_content": "BERT FastText NLP"},
+        {"chunk_id": "ck1", "candidate_id": "res_maogm", "score": 0.95, "parent_content": "毛光铭 BERT Transformer NLP 4年经验"},
+        {"chunk_id": "ck2", "candidate_id": "res_wenjr", "score": 0.82, "parent_content": "温佳蕊 BERT FastText NLP 1年经验"},
+        {"chunk_id": "ck3", "candidate_id": "res_lizp", "score": 0.75, "parent_content": "李志鹏 BERT FastText 0年经验 应届生"},
     ])
     vector_store_mock.insert = AsyncMock()
     vector_store_mock.delete_by_resume_id = AsyncMock()
@@ -224,8 +252,9 @@ def chat_env():
             "redis": redis,
             "state": {},
             "llm_mock": llm_mock,
-            "llm_chat_responses": llm_chat_responses,
-            "llm_chat_call_count": llm_chat_call_count,
+            "score_responses": score_responses,
+            "score_idx": score_idx,
+            "default_intent": default_intent,
             "vector_store_mock": vector_store_mock,
         }
         yield env
@@ -282,12 +311,15 @@ def _clear_search_cache(chat_env):
 
 
 class _BaseChatTest:
-    """所有对话场景测试的基类：每个测试前自动清空检索缓存"""
+    """所有对话场景测试的基类：每个测试前自动清空检索缓存和LLM mock状态"""
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self, chat_env):
-        """每个测试方法前自动清空 redis 缓存（避免跨测试缓存命中）"""
+        """每个测试方法前自动清空 redis 缓存和 LLM 状态（避免跨测试串扰）"""
         _clear_search_cache(chat_env)
+        chat_env["score_responses"][:] = []
+        chat_env["score_idx"]["i"] = 0
+        chat_env["default_intent"]["value"] = "search"
 
 
 class TestChitchatScenario(_BaseChatTest):
@@ -298,9 +330,7 @@ class TestChitchatScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        # LLM 返回 chitchat 意图
-        chat_env["llm_chat_responses"][:] = ["chitchat"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["default_intent"]["value"] = "chitchat"
 
         events = _send_message(chat_env["client"], token, session_id, "你好")
         event_names = [e["event"] for e in events]
@@ -324,17 +354,14 @@ class TestSearchScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        # LLM 按顺序返回: 意图search → 评分(毛光铭) → 评分(李志鹏) → 评分(温佳蕊)
-        chat_env["llm_chat_responses"][:] = [
-            "search",  # intent_node
-            json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "4年NLP经验，BERT项目落地"}),  # 毛光铭
-            json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "应届生，有BERT项目"}),  # 李志鹏
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
-                        "overall": 0, "reason": "1年经验，有NLP项目"}),  # 温佳蕊
-        ]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        # 评分响应按MongoDB简历顺序：毛光铭 → 李志鹏 → 温佳蕊
+        _SCORE_MAO = json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
+                                 "overall": 0, "reason": "4年NLP经验，BERT项目落地"})
+        _SCORE_LI = json.dumps({"skill": 72, "experience": 50, "education": 75, "salary": 85,
+                                "overall": 0, "reason": "应届生，有BERT项目"})
+        _SCORE_WEN = json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
+                                 "overall": 0, "reason": "1年经验，有NLP项目"})
+        chat_env["score_responses"][:] = [_SCORE_MAO, _SCORE_LI, _SCORE_WEN]
 
         events = _send_message(chat_env["client"], token, session_id, "帮我找一些NLP方向的工程师")
         event_names = [e["event"] for e in events]
@@ -378,9 +405,6 @@ class TestSearchScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = ["search"]
-        chat_env["llm_chat_call_count"]["i"] = 0
-
         events = _send_message(chat_env["client"], token, session_id, "帮我找一些NLP方向的工程师")
 
         done_event = next(e["data"] for e in events if e["event"] == "done")
@@ -395,24 +419,23 @@ class TestCompareScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        # 第1轮: 搜索 NLP 工程师
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        # 第1轮: 搜索 NLP 工程师（评分按MongoDB顺序：毛→李→温）
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
         events1 = _send_message(chat_env["client"], token, session_id, "帮我找一些NLP方向的工程师")
         event_names1 = [e["event"] for e in events1]
         assert "retrieval" in event_names1, "第1轮搜索应有 retrieval"
 
         # 第2轮: 对比李志鹏和温佳蕊
-        chat_env["llm_chat_responses"][:] = ["compare"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = []
+        chat_env["default_intent"]["value"] = "compare"
         events2 = _send_message(chat_env["client"], token, session_id, "对比李志鹏和温佳蕊")
         event_names2 = [e["event"] for e in events2]
 
@@ -434,16 +457,15 @@ class TestCompareScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = [
-            "compare",
+        chat_env["default_intent"]["value"] = "compare"
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         events = _send_message(chat_env["client"], token, session_id, "对比一下候选人")
         event_names = [e["event"] for e in events]
@@ -460,20 +482,21 @@ class TestQAScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        # 第1轮: 搜索
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        # 第1轮: 搜索（3个评分JSON）
+        chat_env["score_responses"][:] = [
+            json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
+                        "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
         _send_message(chat_env["client"], token, session_id, "找NLP工程师")
 
-        # 第2轮: 问评分差异
-        chat_env["llm_chat_responses"][:] = ["qa"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        # 第2轮: 问评分差异（qa 不触发检索也不调用评分LLM）
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = []
+        chat_env["default_intent"]["value"] = "qa"
         events = _send_message(chat_env["client"], token, session_id, "为什么李志鹏评分比温佳蕊高")
         event_names = [e["event"] for e in events]
 
@@ -497,21 +520,20 @@ class TestDetailScenario(_BaseChatTest):
         session_id = _create_session(chat_env, token)
 
         # 第1轮: 搜索
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
         _send_message(chat_env["client"], token, session_id, "找NLP工程师")
 
-        # 第2轮: 查看李志鹏详情
-        chat_env["llm_chat_responses"][:] = ["detail"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        # 第2轮: 查看李志鹏详情（detail 不触发检索/评分）
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = []
+        chat_env["default_intent"]["value"] = "detail"
         events = _send_message(chat_env["client"], token, session_id, "李志鹏的详情")
         event_names = [e["event"] for e in events]
 
@@ -529,43 +551,43 @@ class TestMultiTurnContext(_BaseChatTest):
         """连续5轮对话验证候选人复用链路完整"""
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
-
-        # 第1轮: 搜索
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        _3_SCORES = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
+
+        # 第1轮: 搜索
+        chat_env["score_responses"][:] = list(_3_SCORES)
         events1 = _send_message(chat_env["client"], token, session_id, "帮我找一些NLP方向的工程师")
         assert "retrieval" in [e["event"] for e in events1]
 
         # 第2轮: 闲聊
-        chat_env["llm_chat_responses"][:] = ["chitchat"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = []
+        chat_env["default_intent"]["value"] = "chitchat"
         events2 = _send_message(chat_env["client"], token, session_id, "谢谢")
         assert "retrieval" not in [e["event"] for e in events2]
 
         # 第3轮: 对比
-        chat_env["llm_chat_responses"][:] = ["compare"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["default_intent"]["value"] = "compare"
         events3 = _send_message(chat_env["client"], token, session_id, "对比李志鹏和温佳蕊")
         assert "retrieval" not in [e["event"] for e in events3]
         assert "candidates" in [e["event"] for e in events3]
 
         # 第4轮: 评分问答
-        chat_env["llm_chat_responses"][:] = ["qa"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["default_intent"]["value"] = "qa"
         events4 = _send_message(chat_env["client"], token, session_id, "为什么李志鹏评分比温佳蕊高")
         assert "retrieval" not in [e["event"] for e in events4]
 
         # 第5轮: 详情
-        chat_env["llm_chat_responses"][:] = ["detail"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["default_intent"]["value"] = "detail"
         events5 = _send_message(chat_env["client"], token, session_id, "毛光铭的详情")
         assert "retrieval" not in [e["event"] for e in events5]
 
@@ -578,27 +600,22 @@ class TestScoreDifferentiation(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "4年NLP经验"}),  # 高分
-            json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "应届生"}),  # 低分
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
-                        "overall": 0, "reason": "1年经验"}),  # 中分
+                        "overall": 0, "reason": "4年NLP经验"}),  # 毛光铭 高分
+            json.dumps({"skill": 70, "experience": 50, "education": 75, "salary": 85,
+                        "overall": 0, "reason": "应届生"}),  # 李志鹏 低分
+            json.dumps({"skill": 78, "experience": 70, "education": 75, "salary": 80,
+                        "overall": 0, "reason": "1年经验"}),  # 温佳蕊 中分
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         events = _send_message(chat_env["client"], token, session_id, "找NLP工程师_区分度测试")
         cand_event = next(e["data"] for e in events if e["event"] == "candidates")
 
         scores = {c["name"]: c["score"] for c in cand_event}
-        # overall = 0.4*skill + 0.3*experience + 0.2*education + 0.1*salary
-        # 验证评分有区分度（3个分数不全相同）
         unique_scores = set(scores.values())
         assert len(unique_scores) == 3, f"3名候选人评分应有区分度，实际: {scores}"
 
-        # 验证评分降序排列
         score_list = [c["score"] for c in cand_event]
         assert score_list == sorted(score_list, reverse=True), "候选人应按评分降序排列"
 
@@ -607,16 +624,14 @@ class TestScoreDifferentiation(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 80, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年经验"}),  # 毛光铭 4年
             json.dumps({"skill": 80, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "0年经验"}),  # 李志鹏 0年
-            json.dumps({"skill": 80, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),  # 温佳蕊 1年
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         events = _send_message(chat_env["client"], token, session_id, "找NLP工程师_经验维度测试")
         cand_event = next(e["data"] for e in events if e["event"] == "candidates")
@@ -634,26 +649,19 @@ class TestEmptyResultScenario(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        # VectorStore 返回空结果（修改已 patch 的 mock）
         original_return = chat_env["vector_store_mock"].hybrid_search.return_value
         chat_env["vector_store_mock"].hybrid_search = AsyncMock(return_value=[])
-
-        chat_env["llm_chat_responses"][:] = ["search"]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         try:
             events = _send_message(chat_env["client"], token, session_id, "找一个冷门技能zzz")
             event_names = [e["event"] for e in events]
 
-            # search 意图应触发检索
             assert "retrieval" in event_names
             retrieval_data = next(e["data"] for e in events if e["event"] == "retrieval")
             assert retrieval_data["count"] == 0
 
-            # 空结果不应有 rank 事件
             assert "rank" not in event_names
 
-            # 应有 token 和 done（澄清提示）
             assert "token" in event_names
             assert "done" in event_names
         finally:
@@ -668,24 +676,20 @@ class TestSynonymExpansion(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         events = _send_message(chat_env["client"], token, session_id, "NLP")
         cand_event = next(e["data"] for e in events if e["event"] == "candidates")
 
-        # 验证返回了候选人（即使查询只有"NLP"，通过同义词扩展也能召回）
         assert len(cand_event) == 3
 
-        # 验证候选人技能中包含 BERT/FastText（不是直接写"NLP"的也能被召回）
         all_skills = []
         for c in cand_event:
             all_skills.extend(c.get("skills", []))
@@ -701,31 +705,23 @@ class TestSessionIsolation(_BaseChatTest):
         token = _login(chat_env)
         session1 = _create_session(chat_env, token, "会话1")
         session2 = _create_session(chat_env, token, "会话2")
-
-        # 会话1: 搜索 NLP 工程师
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        _3_SCORES = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
                         "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
+
+        # 会话1: 搜索 NLP 工程师
+        chat_env["score_responses"][:] = list(_3_SCORES)
         _send_message(chat_env["client"], token, session1, "帮我找一些NLP方向的工程师")
 
         # 会话2: 直接对比（无历史候选人，应触发检索）
-        chat_env["llm_chat_responses"][:] = [
-            "compare",
-            json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "4年NLP经验"}),
-            json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
-                        "overall": 0, "reason": "应届生"}),
-            json.dumps({"skill": 72, "experience": 65, "education": 75, "salary": 80,
-                        "overall": 0, "reason": "1年经验"}),
-        ]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = list(_3_SCORES)
+        chat_env["default_intent"]["value"] = "compare"
         events2 = _send_message(chat_env["client"], token, session2, "对比一下候选人")
         event_names2 = [e["event"] for e in events2]
 
@@ -741,19 +737,18 @@ class TestSSEEventFlow(_BaseChatTest):
         token = _login(chat_env)
         session_id = _create_session(chat_env, token)
 
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
+                        "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
 
         events = _send_message(chat_env["client"], token, session_id, "找NLP工程师")
         event_names = [e["event"] for e in events]
 
-        # 验证事件存在
         assert "intent" in event_names
         assert "retrieval" in event_names
         assert "rank" in event_names
@@ -761,13 +756,10 @@ class TestSSEEventFlow(_BaseChatTest):
         assert "token" in event_names
         assert "done" in event_names
 
-        # 验证事件顺序: intent 在 retrieval 之前
         assert event_names.index("intent") < event_names.index("retrieval")
-        # retrieval 在 candidates 之前
-        assert event_names.index("retrieval") < event_names.index("candidates")
-        # candidates 在 token 之前
+        assert event_names.index("retrieval") < event_names.index("rank")
+        assert event_names.index("rank") < event_names.index("candidates")
         assert event_names.index("candidates") < event_names.index("token")
-        # token 在 done 之前
         assert event_names.index("token") < event_names.index("done")
 
     def test_compare_sse_no_retrieval_no_rank(self, chat_env):
@@ -776,19 +768,20 @@ class TestSSEEventFlow(_BaseChatTest):
         session_id = _create_session(chat_env, token)
 
         # 第1轮搜索
-        chat_env["llm_chat_responses"][:] = [
-            "search",
+        chat_env["score_responses"][:] = [
             json.dumps({"skill": 92, "experience": 90, "education": 75, "salary": 85,
                         "overall": 0, "reason": "4年NLP经验"}),
             json.dumps({"skill": 75, "experience": 50, "education": 75, "salary": 85,
                         "overall": 0, "reason": "应届生"}),
+            json.dumps({"skill": 80, "experience": 70, "education": 75, "salary": 80,
+                        "overall": 0, "reason": "1年经验"}),
         ]
-        chat_env["llm_chat_call_count"]["i"] = 0
         _send_message(chat_env["client"], token, session_id, "找NLP工程师")
 
         # 第2轮对比
-        chat_env["llm_chat_responses"][:] = ["compare"]
-        chat_env["llm_chat_call_count"]["i"] = 0
+        chat_env["score_idx"]["i"] = 0
+        chat_env["score_responses"][:] = []
+        chat_env["default_intent"]["value"] = "compare"
         events = _send_message(chat_env["client"], token, session_id, "对比毛光铭和李志鹏")
         event_names = [e["event"] for e in events]
 

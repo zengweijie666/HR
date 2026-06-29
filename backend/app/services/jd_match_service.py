@@ -61,12 +61,20 @@ class JdMatchService:
         ).strip()
         dense, sparse = self.embedding.encode([query])
 
-        # 3. 混合检索
+        # 3. 构造过滤条件（JD中的硬条件传Milvus）
+        milvus_filters = {}
+        if jd.get("work_years_min"):
+            milvus_filters["work_years_min"] = jd["work_years_min"]
+        if jd.get("salary_max"):
+            milvus_filters["salary_max"] = jd["salary_max"]
+
+        # 4. 混合检索（扩大召回，避免多chunk导致候选人被截断）
+        retrieve_k = max(top_k * 5, 50)
         chunks = await self.vector_store.hybrid_search(
-            dense, sparse, filters={}, top_k=top_k
+            dense, sparse, filters=milvus_filters, top_k=retrieve_k
         )
 
-        # 4. Reranker 精排
+        # 5. Reranker 精排 + resume级去重
         if chunks:
             docs = [c.get("parent_content", "") for c in chunks]
             try:
@@ -81,14 +89,23 @@ class JdMatchService:
                 logger.warning(f"JD 匹配 Reranker 精排失败，使用原始分数: {e}")
                 for c in chunks:
                     c["rerank_score"] = 0.0
-            chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
-            chunks = chunks[:top_k]
+            # resume级去重：每个resume_id保留最高rerank_score的chunk
+            best_by_resume = {}
+            for c in chunks:
+                rid = c.get("candidate_id", "")
+                if not rid:
+                    continue
+                if rid not in best_by_resume or c["rerank_score"] > best_by_resume[rid]["rerank_score"]:
+                    best_by_resume[rid] = c
+            chunks = sorted(best_by_resume.values(), key=lambda x: x["rerank_score"], reverse=True)
+            logger.info(f"JD匹配简历级去重后 {len(chunks)} 人")
 
-        # 5. 拉取候选人元数据 + 生成匹配理由
-        candidate_ids = [c["candidate_id"] for c in chunks if c.get("candidate_id")]
-        candidates = await self._enrich_candidates(candidate_ids, jd, chunks)
+        # 6. 拉取候选人元数据 + Python后过滤 + 生成匹配理由
+        candidate_pool = chunks[: max(top_k * 2, 20)]
+        candidate_ids = [c["candidate_id"] for c in candidate_pool if c.get("candidate_id")]
+        candidates = await self._enrich_candidates(candidate_ids, jd, candidate_pool)
 
-        return {"jd": jd, "candidates": candidates}
+        return {"jd": jd, "candidates": candidates[:top_k]}
 
     async def _parse_jd(self, jd_text: str) -> dict:
         """AC19.2: LLM 解析 JD 为结构化数据
@@ -116,7 +133,7 @@ class JdMatchService:
     async def _enrich_candidates(
         self, candidate_ids: list[str], jd: dict, chunks: list[dict]
     ) -> list[dict]:
-        """拉取候选人元数据 + 生成匹配理由
+        """拉取候选人元数据 + Python内存过滤 + 生成匹配理由
 
         入参:
             candidate_ids: Milvus 返回的 ID 列表（Milvus candidate_id 字段存的是 resume_id）
@@ -127,13 +144,27 @@ class JdMatchService:
         """
         if not candidate_ids or self.resumes_coll is None:
             return []
-        # Milvus 中 candidate_id 字段存的是 resume_id，用 resume_id 查询 MongoDB
         cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
         docs = await cursor.to_list(length=len(candidate_ids))
         chunk_map = {c.get("candidate_id"): c for c in chunks}
 
-        scored: list[dict] = []
+        # Python内存硬过滤（兜底Milvus层）
+        years_min = jd.get("work_years_min", 0) or 0
+        sal_max = jd.get("salary_max", 0) or 0
+        filtered_docs = []
         for doc in docs:
+            doc_years = doc.get("work_years", 0)
+            doc_salary = doc.get("expected_salary", {}) or {}
+            doc_sal_min = doc_salary.get("min", 0) or 0
+            if years_min and doc_years < years_min:
+                continue
+            if sal_max and doc_sal_min > 0 and doc_sal_min > sal_max:
+                continue
+            filtered_docs.append(doc)
+        logger.info(f"JD匹配Python过滤后 {len(filtered_docs)}/{len(docs)} 人")
+
+        scored: list[dict] = []
+        for doc in filtered_docs:
             cid = doc.get("candidate_id")
             rid = doc.get("resume_id")
             rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))

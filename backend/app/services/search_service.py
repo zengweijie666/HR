@@ -69,8 +69,38 @@ class SearchService:
             history: 对话历史（用于策略选择）
         出参:
             候选人卡片列表
+        流程:
+            1. 缓存检查
+            2. 策略改写（同义词/多查询）
+            3. 多改写混合检索（Milvus top_k=RETRIEVE_TOP_K*2 扩大召回）
+            4. chunk_id 去重
+            5. Reranker 精排所有chunks
+            6. 【关键修复】按 candidate_id(resume_id) 去重，每个简历保留最高 rerank_score 的chunk
+            7. 拉取 MongoDB 元数据
+            8. 【关键修复】Python 内存硬过滤（学历/薪资/年限），兜底 Milvus 层
+            9. 取候选池（top_k*2 送 LLM 评分，保证评分后有足够结果）
+            10. LLM 并发评分 + 融合 rerank_score
+            11. 排序 + 截断 top_k
+            12. 写缓存
         """
         history = history or []
+        filters = dict(filters or {})  # 复制，避免修改调用方 dict
+
+        # 【关键修复】从自然语言 query 中正则提取 required_skills
+        # 直接搜索 API 不经过 agent graph 的 filter_extract_node，需在此补充提取
+        try:
+            from app.agent.nodes import _regex_extract_filters
+            extracted = _regex_extract_filters(query)
+            extracted_skills = extracted.get("required_skills", [])
+            if extracted_skills:
+                existing = set(filters.get("required_skills", []) or [])
+                for sk in extracted_skills:
+                    existing.add(sk)
+                filters["required_skills"] = list(existing)
+                logger.info(f"从query提取 required_skills={filters['required_skills']}")
+        except Exception as e:
+            logger.warning(f"required_skills 提取失败: {e}")
+
         cache_key = f"search:{query}:{json.dumps(filters, sort_keys=True, default=str)}:{top_k}"
 
         # 缓存命中
@@ -88,30 +118,33 @@ class SearchService:
         rewrites = await self.strategy_selector.rewrite(query, strategy, history)
         logger.info(f"检索策略={strategy}, 改写={rewrites}")
 
-        # 多改写检索 + 去重
+        # 扩大 Milvus 每路召回数量，避免多简历多chunk导致候选人被截断
+        retrieve_per_query = max(settings.RETRIEVE_TOP_K, top_k * 5)
+
+        # 多改写检索 + chunk_id 去重
         all_chunks: list[dict] = []
         for rq in rewrites:
             dense, sparse = self.embedding.encode([rq])
             chunks = await self.vector_store.hybrid_search(
-                dense, sparse, filters=filters, top_k=settings.RETRIEVE_TOP_K
+                dense, sparse, filters=filters, top_k=retrieve_per_query
             )
             all_chunks.extend(chunks)
 
-        seen_ids: set[str] = set()
+        seen_chunk_ids: set[str] = set()
         unique_chunks: list[dict] = []
         for c in all_chunks:
             cid = c.get("chunk_id")
-            if cid and cid not in seen_ids:
-                seen_ids.add(cid)
+            if cid and cid not in seen_chunk_ids:
+                seen_chunk_ids.add(cid)
                 unique_chunks.append(c)
+        logger.info(f"去重后 chunk 数: {len(unique_chunks)}")
 
-        # Reranker 精排
+        # Reranker 精排（对所有 unique_chunks 精排，不提前截断）
         if unique_chunks:
             docs = [c.get("parent_content", "") for c in unique_chunks]
-            logger.info(f"Reranker 精排开始, {len(docs)} 个文档")
+            logger.info(f"Reranker 精排开始, {len(docs)} 个chunks")
             try:
                 scores = self.reranker.rerank(query, docs)
-                logger.info(f"Reranker 返回类型={type(scores).__name__}, value={str(scores)[:200]}")
                 if scores is None:
                     logger.warning("Reranker 返回 None, 跳过精排")
                     scores = []
@@ -119,17 +152,50 @@ class SearchService:
                     scores = [scores]
                 for i, c in enumerate(unique_chunks):
                     c["rerank_score"] = float(scores[i]) if i < len(scores) else 0.0
-                unique_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
-                unique_chunks = unique_chunks[:top_k]
             except Exception as e:
                 logger.error(f"Reranker 精排失败: {e}", exc_info=True)
                 for c in unique_chunks:
                     c["rerank_score"] = 0.0
 
-        # 拉取候选人元数据 + LLM 评分
-        candidate_ids = [c["candidate_id"] for c in unique_chunks if c.get("candidate_id")]
-        logger.info(f"候选人 ID 列表: {candidate_ids}")
-        results = await self._enrich_candidates(candidate_ids, query, unique_chunks)
+            # 【关键修复】按 candidate_id(resume_id) 去重，每个简历保留最高 rerank_score 的chunk
+            best_chunk_by_resume: dict[str, dict] = {}
+            for c in unique_chunks:
+                rid = c.get("candidate_id", "")
+                if not rid:
+                    continue
+                if rid not in best_chunk_by_resume or c["rerank_score"] > best_chunk_by_resume[rid]["rerank_score"]:
+                    best_chunk_by_resume[rid] = c
+
+            # 按 rerank_score 降序排列简历级chunks
+            deduped_chunks = sorted(
+                best_chunk_by_resume.values(),
+                key=lambda x: x["rerank_score"],
+                reverse=True,
+            )
+
+            # 注意：不再使用 rerank_score 绝对阈值过滤。BGE-Reranker 对口语化查询（如
+            # "有没有会html的"）整体打分偏低，绝对阈值会误杀全部候选人。相关性过滤交给
+            # 下游的技能硬过滤（required_skills）+ 最低分数截断（MIN_SCORE_THRESHOLD=40）。
+            logger.info(f"简历级去重后 候选人数: {len(deduped_chunks)}")
+
+            # 取足够多的候选简历送 LLM 评分（top_k*3 但至少 20，以保证硬过滤后仍有足够结果）
+            candidate_pool_size = max(top_k * 3, 20)
+            candidate_chunks = deduped_chunks[:candidate_pool_size]
+        else:
+            candidate_chunks = []
+
+        # 拉取候选人元数据
+        candidate_ids = [c["candidate_id"] for c in candidate_chunks if c.get("candidate_id")]
+        logger.info(f"准备查询MongoDB的候选人ID数: {len(candidate_ids)}, IDs={candidate_ids}")
+        results = await self._enrich_candidates(candidate_ids, query, candidate_chunks, filters)
+
+        # 最终排序取 top_k
+        results.sort(key=lambda x: x["score"], reverse=True)
+        # 【关键修复】最低分数截断：低于40分的候选人与需求基本不匹配，不返回
+        MIN_SCORE_THRESHOLD = 40
+        results = [r for r in results if r["score"] >= MIN_SCORE_THRESHOLD]
+        results = results[:top_k]
+        logger.info(f"分数截断后 {len(results)} 人 (min_score={MIN_SCORE_THRESHOLD})")
 
         # 写缓存
         if self.redis is not None:
@@ -142,26 +208,76 @@ class SearchService:
         return results
 
     async def _enrich_candidates(
-        self, candidate_ids: list[str], query: str, chunks: list[dict]
+        self,
+        candidate_ids: list[str],
+        query: str,
+        chunks: list[dict],
+        filters: dict = None,
     ) -> list[dict]:
-        """拉取候选人元数据 + LLM 评分
+        """拉取候选人元数据 + Python内存过滤 + LLM评分
 
         入参:
-            candidate_ids: Milvus 返回的 ID 列表（注意：Milvus candidate_id 字段存的是 resume_id）
+            candidate_ids: Milvus 返回的 resume_id 列表（已按简历级去重）
             query: 原始查询
-            chunks: 检索 chunks（用于 rerank_score 回退）
+            chunks: 检索chunks（每个resume_id一个最佳chunk，用于rerank_score）
+            filters: 过滤条件（用于Python内存硬过滤兜底）
         出参:
-            候选人卡片列表（按 score 降序）
+            候选人卡片列表（按score降序）
         """
+        filters = filters or {}
         if not candidate_ids:
             return []
         if self.resumes_coll is None:
             return []
-        # Milvus 中 candidate_id 字段存的是 resume_id，用 resume_id 查询 MongoDB
         cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
         docs = await cursor.to_list(length=len(candidate_ids))
         logger.info(f"MongoDB 查询到 {len(docs)} 条简历文档")
         chunk_map = {c.get("candidate_id"): c for c in chunks}
+
+        # Python 内存硬过滤（兜底 Milvus 层过滤，防止已有数据scalar字段未更新时过滤失效）
+        edu_min = filters.get("education_min")
+        years_min = filters.get("work_years_min")
+        sal_max = filters.get("salary_max")
+        required_skills = filters.get("required_skills", []) or []
+        # 技能关键词统一小写，便于匹配
+        required_skills_lower = [s.lower() for s in required_skills if isinstance(s, str)]
+        filtered_docs: list[dict] = []
+        for doc in docs:
+            doc_edu = doc.get("education_level", 1)
+            doc_years = doc.get("work_years", 0)
+            doc_salary = doc.get("expected_salary", {}) or {}
+            doc_sal_min = doc_salary.get("min", 0) or 0
+            doc_sal_max = doc_salary.get("max", 0) or 0
+
+            if edu_min is not None and doc_edu < edu_min:
+                continue
+            if years_min is not None and doc_years < years_min:
+                continue
+            if sal_max is not None:
+                # 如果简历填了薪资，要求薪资下限<=预算；未填薪资(0)视为可谈，不强制过滤
+                if doc_sal_min > 0 and doc_sal_min > sal_max:
+                    continue
+                # 如果填了薪资上限且也超过预算，过滤掉
+                if doc_sal_max > 0 and doc_sal_max > sal_max and doc_sal_min == 0:
+                    continue
+
+            # 【关键修复】技能硬过滤：如果用户指定了required_skills，候选人必须至少具备其中一个
+            if required_skills_lower:
+                doc_skills = doc.get("skills", []) or []
+                doc_skills_lower = {s.lower() for s in doc_skills if isinstance(s, str)}
+                # 检查候选人技能中是否包含任一required_skill（子串匹配，如"html5"包含"html"）
+                has_skill = any(
+                    any(req in sk or sk in req for sk in doc_skills_lower)
+                    for req in required_skills_lower
+                )
+                if not has_skill:
+                    continue
+
+            filtered_docs.append(doc)
+        logger.info(
+            f"Python硬过滤后 {len(filtered_docs)}/{len(docs)} 人 "
+            f"(edu_min={edu_min}, years_min={years_min}, sal_max={sal_max}, required_skills={required_skills_lower})"
+        )
 
         scored: list[dict] = []
 
@@ -187,6 +303,7 @@ class SearchService:
                         "experience": score_data["experience"],
                         "education": score_data["education"],
                         "salary": score_data["salary"],
+                        "rerank": round(rerank_score * 100, 1),
                     },
                     "reason": score_data["reason"],
                     "tags": doc.get("tags", []),
@@ -197,27 +314,27 @@ class SearchService:
                 logger.warning(f"候选人评分异常: {e}")
                 return None
 
-        results = await asyncio.gather(*[_score_one(doc) for doc in docs], return_exceptions=False)
+        results = await asyncio.gather(
+            *[_score_one(doc) for doc in filtered_docs], return_exceptions=False
+        )
         scored = [r for r in results if r is not None]
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored
 
     async def _llm_score_multi(self, query: str, candidate: dict, rerank_score: float = 0.0) -> dict:
-        """LLM 分维度评分（4 维度 + overall + reason）
+        """LLM 分维度评分（4 维度 + 代码加权overall + reason）
 
         入参:
             query: 原始查询
             candidate: 候选人文档
-            rerank_score: reranker 得分（LLM 调用失败时兜底）
+            rerank_score: reranker 得分（0-1，用于融合稳定性）
         出参:
             {skill, experience, education, salary, overall, reason}
-        异常兜底:
-            - LLM 调用失败（网络/超时）→ 4 维度全部回退 rerank_score*100
-            - LLM 返回但 JSON 解析失败 → 全 0 + reason="评分暂不可用"
         设计:
-            - overall 始终用代码加权计算（0.4*skill + 0.3*experience + 0.2*education + 0.1*salary），
-              不信任 LLM 的 overall，避免 LLM 评分趋同导致无区分度
-            - 候选人只传关键字段（姓名/年限/学历/技能/项目/工作经历），避免无关字段干扰
+            - LLM 输出4个维度分（0-100）
+            - overall 代码加权计算（0.35*skill + 0.25*experience + 0.15*education + 0.1*salary + 0.15*rerank*100）
+              融合 rerank_score 降低 LLM 随机性导致的排名波动
+            - LLM 失败时回退到 rerank_score
         """
         brief = self._build_candidate_brief(candidate)
         try:
@@ -238,7 +355,6 @@ class SearchService:
                 "reason": "基于语义相似度匹配",
             }
 
-        # LLM 调用成功，解析 JSON
         try:
             data = json.loads(resp.strip())
             result = {
@@ -248,22 +364,27 @@ class SearchService:
                 "salary": float(data.get("salary", 0)),
                 "reason": data.get("reason", "评分暂不可用"),
             }
-            # overall 始终用代码加权计算，确保不同候选人评分有区分度
-            # 权重：技能 40% + 经验 30% + 学历 20% + 薪资 10%
+            # 代码加权：skill 35% + experience 25% + education 15% + salary 10% + rerank 15%
+            # 融合 rerank_score 提高排名稳定性，避免 LLM 单次打分波动导致排名剧烈变化
+            rerank_100 = min(100.0, max(0.0, rerank_score * 100))
             result["overall"] = round(
-                0.4 * result["skill"] + 0.3 * result["experience"]
-                + 0.2 * result["education"] + 0.1 * result["salary"]
+                0.35 * result["skill"]
+                + 0.25 * result["experience"]
+                + 0.15 * result["education"]
+                + 0.10 * result["salary"]
+                + 0.15 * rerank_100
             )
             return result
         except Exception as e:
-            logger.warning(f"LLM 评分 JSON 解析失败，全 0 兜底: {e}")
+            logger.warning(f"LLM 评分 JSON 解析失败，回退 rerank: {e}")
+            fallback = rerank_score * 100
             return {
-                "skill": 0,
-                "experience": 0,
-                "education": 0,
-                "salary": 0,
-                "overall": 0,
-                "reason": "评分暂不可用",
+                "skill": fallback,
+                "experience": fallback,
+                "education": fallback,
+                "salary": fallback,
+                "overall": round(fallback),
+                "reason": "基于语义相似度匹配",
             }
 
     @staticmethod
@@ -280,8 +401,11 @@ class SearchService:
         work_years = candidate.get("work_years", 0)
         education = candidate.get("education", "")
         skills = candidate.get("skills", []) or []
+        salary = candidate.get("expected_salary", {}) or {}
+        sal_min = salary.get("min", 0)
+        sal_max = salary.get("max", 0)
+        sal_str = f"{sal_min}K-{sal_max}K" if sal_min or sal_max else "未填"
 
-        # 工作经历：公司/岗位（最多3条）
         work_exp = candidate.get("work_experience", []) or []
         work_desc = "; ".join([
             f"{w.get('company', '')}/{w.get('position', '')}"
@@ -289,7 +413,6 @@ class SearchService:
             if w.get("company") or w.get("position")
         ])
 
-        # 项目经历：名称+描述（最多3条，每条截断100字）
         projects = candidate.get("projects", []) or []
         project_desc = "; ".join([
             f"{p.get('name', '')}: {(p.get('description', '') or '')[:100]}"
@@ -300,7 +423,7 @@ class SearchService:
         summary = (candidate.get("summary", "") or "")[:150]
 
         return (
-            f"姓名:{name}, 工作年限:{work_years}年, 学历:{education}, "
+            f"姓名:{name}, 工作年限:{work_years}年, 学历:{education}, 期望薪资:{sal_str}, "
             f"技能:{skills}, "
             f"工作经历:{work_desc}, "
             f"项目:{project_desc}, "
