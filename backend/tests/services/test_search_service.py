@@ -331,3 +331,54 @@ def test_build_candidate_brief_truncates_long_project_desc():
     # 项目描述应被截断到 100 字
     assert "项目A" in brief
     assert "X" * 500 not in brief
+
+
+@pytest.mark.asyncio
+async def test_search_multi_route_with_decomposed():
+    """多路召回：传入 decomposed 时应触发 Route A/B/C 三路检索"""
+    svc = SearchService()
+    svc.embedding = MagicMock()
+    svc.embedding.encode = MagicMock(return_value=([[0.1] * 1024], [{}]))
+    svc.reranker = MagicMock()
+    svc.reranker.rerank = MagicMock(return_value=[0.9])
+    svc.vector_store = AsyncMock()
+    # Route A 命中 r1, Route B 命中 r2, Route C MongoDB 命中 r3
+    svc.vector_store.hybrid_search = AsyncMock(side_effect=[
+        [{"chunk_id": "c1", "candidate_id": "r1", "score": 0.9, "parent_content": "Python 5年"}],
+        [{"chunk_id": "c2", "candidate_id": "r2", "score": 0.8, "parent_content": "Docker 微服务"}],
+    ])
+    svc.strategy_selector = AsyncMock()
+    svc.strategy_selector.select = AsyncMock(return_value="direct")
+    svc.strategy_selector.rewrite = AsyncMock(return_value=["main query"])
+    svc.resumes_coll = MagicMock()
+    # Route C MongoDB 查询返回 r3
+    svc.resumes_coll.find.return_value.to_list = AsyncMock(return_value=[
+        {"resume_id": "r3", "candidate_id": "c3", "name": "王五", "skills": ["python", "docker"],
+         "work_years": 3, "education": "本科", "education_level": 1,
+         "expected_salary": {"min": 20, "max": 30}, "tags": [], "is_favorite": False,
+         "summary": "3年Python Docker经验"}
+    ])
+    svc.redis = AsyncMock()
+    svc.redis.get = AsyncMock(return_value=None)
+    svc.redis.setex = AsyncMock()
+
+    decomposed = {
+        "main_query": "后端工程师 Python Docker 3年经验",
+        "sub_queries": ["Python Docker"],
+        "structured_filters": {"required_skills": ["python", "docker"], "work_years_min": 3}
+    }
+
+    _score_json = json.dumps({"skill": 85, "experience": 80, "education": 75, "salary": 85, "overall": 0, "reason": "匹配"})
+    with patch("app.services.search_service.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(side_effect=[_score_json, _score_json, _score_json])
+        results = await svc.search(
+            "后端工程师 Python Docker 3年",
+            filters={},
+            top_k=10,
+            decomposed=decomposed,
+        )
+
+    # 应返回多个候选人（Route A 的 r1 + Route C 的 r3）
+    assert len(results) >= 1
+    # vector_store 至少被调用2次（Route A + Route B）
+    assert svc.vector_store.hybrid_search.call_count >= 2

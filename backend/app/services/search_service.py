@@ -59,6 +59,8 @@ class SearchService:
         filters: dict,
         top_k: int = 10,
         history: list = None,
+        decomposed: dict = None,
+        compressed_context: dict = None,
     ) -> list[dict]:
         """主检索流程
 
@@ -113,23 +115,50 @@ class SearchService:
             except Exception as e:
                 logger.warning(f"缓存读取失败: {e}")
 
-        # 策略改写
-        strategy = await self.strategy_selector.select(query, history)
-        rewrites = await self.strategy_selector.rewrite(query, strategy, history)
-        logger.info(f"检索策略={strategy}, 改写={rewrites}")
+        # 多路召回：Route A（主查询）+ Route B（子查询）+ Route C（MongoDB 结构化保底）
+        # 若 decomposed 提供 main_query，Route A 用它；否则回退 strategy_selector 改写
+        if decomposed and decomposed.get("main_query"):
+            route_a_queries = [decomposed["main_query"]]
+            strategy = "decompose"
+            logger.info(f"检索策略=decompose, Route A main_query='{route_a_queries[0]}'")
+        else:
+            strategy = await self.strategy_selector.select(query, history)
+            route_a_queries = await self.strategy_selector.rewrite(query, strategy, history)
+            logger.info(f"检索策略={strategy}, 改写={route_a_queries}")
 
         # 扩大 Milvus 每路召回数量，避免多简历多chunk导致候选人被截断
         retrieve_per_query = max(settings.RETRIEVE_TOP_K, top_k * 5)
 
-        # 多改写检索 + chunk_id 去重
+        # Route A: 主查询 hybrid_search
         all_chunks: list[dict] = []
-        for rq in rewrites:
+        for rq in route_a_queries:
             dense, sparse = self.embedding.encode([rq])
             chunks = await self.vector_store.hybrid_search(
                 dense, sparse, filters=filters, top_k=retrieve_per_query
             )
             all_chunks.extend(chunks)
 
+        # Route B: 子查询独立检索（若 decomposed 提供）
+        sub_queries = (decomposed or {}).get("sub_queries", []) if decomposed else []
+        for sq in sub_queries[:3]:
+            dense, sparse = self.embedding.encode([sq])
+            chunks = await self.vector_store.hybrid_search(
+                dense, sparse, filters=filters, top_k=max(retrieve_per_query // 3, 10)
+            )
+            all_chunks.extend(chunks)
+            logger.info(f"Route B 子查询召回: '{sq[:30]}' → {len(chunks)} chunks")
+
+        # Route C: MongoDB 结构化保底（按 structured_filters 查 MongoDB）
+        if decomposed and decomposed.get("structured_filters"):
+            sf = decomposed["structured_filters"]
+            mongo_hits = await self._mongo_structured_recall(sf, max(retrieve_per_query // 2, 10))
+            if mongo_hits:
+                logger.info(f"Route C MongoDB 结构化保底召回 {len(mongo_hits)} chunks")
+                for c in mongo_hits:
+                    c["rerank_score"] = 0.0  # 兜底分，让 Reranker 重打
+                all_chunks.extend(mongo_hits)
+
+        # chunk_id 去重
         seen_chunk_ids: set[str] = set()
         unique_chunks: list[dict] = []
         for c in all_chunks:
@@ -206,6 +235,48 @@ class SearchService:
             except Exception as e:
                 logger.warning(f"缓存写入失败: {e}")
         return results
+
+    async def _mongo_structured_recall(self, sf: dict, limit: int) -> list[dict]:
+        """Route C: MongoDB 结构化保底召回
+
+        按 structured_filters 的 required_skills / work_years_min / education_min
+        在 MongoDB 查匹配的简历，返回其 chunk 格式（candidate_id + parent_content）。
+
+        入参:
+            sf: structured_filters dict
+            limit: 最多返回数量
+        出参:
+            [{"candidate_id", "parent_content", "chunk_id": "mongo_<rid>"}]
+        """
+        try:
+            query: dict = {}
+            skills = sf.get("required_skills", [])
+            if skills:
+                query["skills"] = {"$regex": "|".join(s.lower() for s in skills), "$options": "i"}
+            years_min = sf.get("work_years_min")
+            if years_min is not None:
+                query["work_years"] = {"$gte": years_min}
+            edu_min = sf.get("education_min")
+            if edu_min is not None:
+                query["education_level"] = {"$gte": edu_min}
+
+            if not query:
+                return []
+
+            cursor = self.resumes_coll.find(query).limit(limit)
+            docs = await cursor.to_list(length=limit)
+            logger.info(f"Route C MongoDB 查询: {query} → {len(docs)} 条")
+            return [
+                {
+                    "candidate_id": d.get("resume_id", ""),
+                    "parent_content": d.get("summary", "") or d.get("name", "") + " " + " ".join(d.get("skills", []) or []),
+                    "chunk_id": f"mongo_{d.get('resume_id', '')}",
+                }
+                for d in docs
+            ]
+        except Exception as e:
+            logger.warning(f"Route C MongoDB 保底召回失败: {e}")
+            return []
 
     async def _enrich_candidates(
         self,
