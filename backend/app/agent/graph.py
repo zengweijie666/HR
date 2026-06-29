@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, END
 from app.agent.state import AgentState
 from app.agent.nodes import (
     intent_node,
-    filter_extract_node,
+    query_decompose_node,
     retrieve_rank_node,
     clarify_node,
     detail_node,
@@ -25,15 +25,15 @@ def _route_after_intent(state: AgentState) -> str:
     入参:
         state: AgentState
     出参:
-        下一节点名（filter_extract/detail/respond）
+        下一节点名（decompose/detail/respond）
     """
     intent = state.get("intent_type", "chitchat")
     if intent == "chitchat":
         return "respond"
     if intent == "detail":
         return "detail"
-    # search / compare / qa 兜底走 filter_extract + retrieve_rank
-    return "filter_extract"
+    # search / compare / qa 兜底走 decompose + retrieve_rank
+    return "decompose"
 
 
 def _route_after_retrieve(state: AgentState) -> str:
@@ -57,7 +57,7 @@ def build_graph():
     """
     workflow = StateGraph(AgentState)
     workflow.add_node("intent", intent_node)
-    workflow.add_node("filter_extract", filter_extract_node)
+    workflow.add_node("decompose", query_decompose_node)
     workflow.add_node("retrieve_rank", retrieve_rank_node)
     workflow.add_node("clarify", clarify_node)
     workflow.add_node("detail", detail_node)
@@ -65,11 +65,11 @@ def build_graph():
 
     workflow.set_entry_point("intent")
     workflow.add_conditional_edges("intent", _route_after_intent, {
-        "filter_extract": "filter_extract",
+        "decompose": "decompose",
         "detail": "detail",
         "respond": "respond",
     })
-    workflow.add_edge("filter_extract", "retrieve_rank")
+    workflow.add_edge("decompose", "retrieve_rank")
     workflow.add_conditional_edges("retrieve_rank", _route_after_retrieve, {
         "clarify": "clarify",
         "respond": "respond",
