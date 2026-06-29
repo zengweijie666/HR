@@ -30,6 +30,8 @@ class AgentState(TypedDict, total=False):
     rewrites: list[str]          # 改写后的 query 列表
     chunks: list[dict]           # 检索结果
     ranked: list[dict]           # 重排后的结果
+    decomposed: dict             # 查询分解结果（main_query/sub_queries/structured_filters）
+    compressed_context: dict     # resume_id → 压缩后的 context 字符串
     candidates: list[dict]       # 候选人卡片
     # 输出
     response: str               # LLM 最终回复
@@ -68,6 +70,8 @@ def make_state(
         rewrites=[],
         chunks=[],
         ranked=[],
+        decomposed={},
+        compressed_context={},
         candidates=last_candidates or [],
         response="",
         message_id="",
