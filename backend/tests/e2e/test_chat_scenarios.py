@@ -127,13 +127,32 @@ def chat_env():
     score_idx = {"i": 0}
     # 允许测试覆盖默认意图（默认 "search"）
     default_intent = {"value": "search"}
+    # 允许测试覆盖查询分解响应（默认 None → 由 _chat_side_effect 内联生成）
+    decompose_response = {"value": None}
+    # 允许测试覆盖上下文压缩响应（默认 None → 返回固定摘要）
+    compress_response = {"value": None}
 
     async def _chat_side_effect(messages, **kwargs):
         content = messages[0].get("content", "") if messages else ""
         # 意图识别
         if "意图分类器" in content or "只返回意图名" in content:
             return default_intent["value"]
-        # 过滤条件提取
+        # 查询分解（新）— 必须在 "education_min" 检查前匹配
+        if "招聘查询分解器" in content:
+            if decompose_response["value"] is not None:
+                return decompose_response["value"]
+            # 默认：根据 query 内容返回合理的分解 JSON
+            return json.dumps({
+                "main_query": "NLP BERT Transformer",
+                "sub_queries": ["nlp 自然语言处理", "bert transformer 深度学习"],
+                "structured_filters": {"required_skills": ["nlp"], "job_type": "算法"}
+            })
+        # 上下文压缩（新）
+        if "简历上下文压缩器" in content:
+            if compress_response["value"] is not None:
+                return compress_response["value"]
+            return "压缩摘要：候选人具备NLP相关技能与项目经验"
+        # 过滤条件提取（旧 prompt，保留兼容）
         if "过滤器提取器" in content or "education_min" in content:
             return "{}"
         # 澄清
@@ -255,6 +274,8 @@ def chat_env():
             "score_responses": score_responses,
             "score_idx": score_idx,
             "default_intent": default_intent,
+            "decompose_response": decompose_response,
+            "compress_response": compress_response,
             "vector_store_mock": vector_store_mock,
         }
         yield env
@@ -320,6 +341,8 @@ class _BaseChatTest:
         chat_env["score_responses"][:] = []
         chat_env["score_idx"]["i"] = 0
         chat_env["default_intent"]["value"] = "search"
+        chat_env["decompose_response"]["value"] = None
+        chat_env["compress_response"]["value"] = None
 
 
 class TestChitchatScenario(_BaseChatTest):
@@ -791,3 +814,133 @@ class TestSSEEventFlow(_BaseChatTest):
         assert "candidates" in event_names
         assert "token" in event_names
         assert "done" in event_names
+
+
+class TestRAGEnhancement(_BaseChatTest):
+    """场景12: RAG 增强（查询分解 + 多路召回 + 上下文压缩）"""
+
+    def test_complex_query_decomposed_and_multi_route(self, chat_env):
+        """复杂多条件查询应被分解，多路召回返回候选人
+
+        验证点：
+        - LLM 查询分解被调用，main_query/sub_queries/structured_filters 正确
+        - Route A（主查询）+ Route B（子查询）均触发 hybrid_search
+        - 候选人按评分返回
+        """
+        token = _login(chat_env)
+        session_id = _create_session(chat_env, token)
+
+        # 自定义分解响应：NLP + BERT 方向（匹配预置的3名NLP候选人数据）
+        chat_env["decompose_response"]["value"] = json.dumps({
+            "main_query": "NLP BERT Transformer 自然语言处理",
+            "sub_queries": ["NLP 自然语言处理 工程师", "BERT Transformer 深度学习"],
+            "structured_filters": {
+                "required_skills": ["nlp"],
+                "job_type": "算法"
+            }
+        })
+        chat_env["score_responses"][:] = [
+            json.dumps({"skill": 88, "experience": 85, "education": 75, "salary": 90,
+                        "overall": 0, "reason": "4年NLP经验，技能匹配"}),
+            json.dumps({"skill": 70, "experience": 50, "education": 75, "salary": 85,
+                        "overall": 0, "reason": "应届生"}),
+            json.dumps({"skill": 78, "experience": 70, "education": 75, "salary": 80,
+                        "overall": 0, "reason": "1年经验"}),
+        ]
+
+        # 重置 hybrid_search 调用计数
+        chat_env["vector_store_mock"].hybrid_search = AsyncMock(return_value=[
+            {"chunk_id": "ck1", "candidate_id": "res_maogm", "score": 0.95,
+             "parent_content": "毛光铭 BERT Transformer NLP 4年经验"},
+            {"chunk_id": "ck2", "candidate_id": "res_wenjr", "score": 0.82,
+             "parent_content": "温佳蕊 BERT FastText NLP 1年经验"},
+            {"chunk_id": "ck3", "candidate_id": "res_lizp", "score": 0.75,
+             "parent_content": "李志鹏 BERT FastText 0年经验 应届生"},
+        ])
+
+        events = _send_message(
+            chat_env["client"], token, session_id,
+            "帮我找一些NLP方向会BERT的工程师"
+        )
+        event_names = [e["event"] for e in events]
+
+        # 验证事件流完整
+        assert "intent" in event_names
+        assert "retrieval" in event_names
+        assert "candidates" in event_names
+        assert "done" in event_names
+
+        # 验证候选人返回
+        cand_event = next(e["data"] for e in events if e["event"] == "candidates")
+        assert isinstance(cand_event, list)
+        assert len(cand_event) >= 1
+
+        # 验证 hybrid_search 被多次调用（Route A 主查询 + Route B 子查询）
+        hybrid_call_count = chat_env["vector_store_mock"].hybrid_search.call_count
+        assert hybrid_call_count >= 2, f"多路召回应至少2次 hybrid_search，实际 {hybrid_call_count} 次"
+
+    def test_decompose_fallback_on_llm_failure(self, chat_env):
+        """LLM 分解失败时应回退正则提取，搜索仍能正常返回结果"""
+        token = _login(chat_env)
+        session_id = _create_session(chat_env, token)
+
+        # 让 LLM 抛异常模拟失败
+        original_chat = chat_env["llm_mock"].chat.side_effect
+
+        async def _failing_chat(messages, **kwargs):
+            content = messages[0].get("content", "") if messages else ""
+            if "招聘查询分解器" in content:
+                raise Exception("LLM 调用失败")
+            return await original_chat(messages, **kwargs)
+
+        chat_env["llm_mock"].chat = AsyncMock(side_effect=_failing_chat)
+        chat_env["score_responses"][:] = [
+            json.dumps({"skill": 88, "experience": 85, "education": 75, "salary": 90,
+                        "overall": 0, "reason": "4年经验"}),
+        ]
+
+        events = _send_message(
+            chat_env["client"], token, session_id,
+            "会Python的"
+        )
+        event_names = [e["event"] for e in events]
+
+        # 即使 LLM 分解失败，搜索仍应正常工作
+        assert "intent" in event_names
+        assert "candidates" in event_names
+
+    @pytest.mark.asyncio
+    async def test_compress_invoked_when_multi_chunks_same_resume(self, chat_env):
+        """同一简历多 chunks 时应触发上下文压缩（节点级）"""
+        from app.agent.nodes import retrieve_rank_node
+        from app.agent.state import make_state
+        from unittest.mock import AsyncMock, patch
+
+        # 构造 state：同一 resume_id 有 2 个 chunks
+        state = make_state(query="NLP工程师", session_id="s1")
+        state["intent_type"] = "search"
+        state["decomposed"] = {
+            "main_query": "NLP",
+            "sub_queries": [],
+            "structured_filters": {"required_skills": ["nlp"]}
+        }
+        state["chunks"] = [
+            {"candidate_id": "res_maogm", "parent_content": "毛光铭 BERT 4年",
+             "rerank_score": 0.9, "chunk_id": "ck1"},
+            {"candidate_id": "res_maogm", "parent_content": "毛光铭 Transformer NLP项目",
+             "rerank_score": 0.7, "chunk_id": "ck2"},
+        ]
+
+        with patch("app.agent.nodes.search_service") as mock_svc, \
+             patch("app.agent.nodes.context_compress_node") as mock_compress:
+            mock_svc.search = AsyncMock(return_value=[{"candidate_id": "c1", "score": 80.0}])
+            mock_compress.return_value = {
+                "compressed_context": {"res_maogm": "压缩后NLP摘要"}
+            }
+            await retrieve_rank_node(state)
+
+            # 验证 context_compress_node 被调用
+            mock_compress.assert_awaited_once()
+            # 验证 compressed_context 透传到 search
+            call_kwargs = mock_svc.search.call_args.kwargs
+            assert call_kwargs["compressed_context"] == {"res_maogm": "压缩后NLP摘要"}

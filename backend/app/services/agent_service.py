@@ -16,7 +16,7 @@ from app.core.llm_client import llm_client
 from app.agent.state import make_state
 from app.agent.nodes import (
     intent_node,
-    filter_extract_node,
+    query_decompose_node,
     retrieve_rank_node,
 )
 
@@ -200,10 +200,10 @@ class AgentService:
                 need_retrieve = False
 
             if need_retrieve:
-                # 2.1 从自然语言query提取硬过滤条件（本科以上/30K以内/3年经验等）
-                filter_result = await filter_extract_node(state)
-                state.update(filter_result)
-                logger.info(f"提取的过滤条件: {state.get('filters', {})}")
+                # 2.1 查询分解（合并过滤提取 + 查询分解，输出 decomposed + filters）
+                decompose_result = await query_decompose_node(state)
+                state.update(decompose_result)
+                logger.info(f"提取的过滤条件: {state.get('filters', {})}, 分解: {state.get('decomposed', {})}")
 
                 # 2.2 检索+精排
                 retrieve_result = await retrieve_rank_node(state)
