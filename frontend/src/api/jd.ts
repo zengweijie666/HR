@@ -13,5 +13,5 @@ import type { JdMatchResult } from '@/types/jd'
  * @param topK 返回数量
  */
 export function matchJd(jdText: string, topK: number): Promise<JdMatchResult> {
-  return request.post('/jd', { jd_text: jdText, top_k: topK }) as unknown as Promise<JdMatchResult>
+  return request.post('/jd', { jd_text: jdText, top_k: topK }, { timeout: 120000 }) as unknown as Promise<JdMatchResult>
 }

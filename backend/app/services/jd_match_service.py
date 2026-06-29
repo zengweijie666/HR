@@ -172,12 +172,31 @@ class JdMatchService:
         logger.info(f"JD匹配Python过滤后 {len(filtered_docs)}/{len(docs)} 人")
 
         scored: list[dict] = []
+        reasons: list[str] = []
+
+        # 先并发生成所有匹配理由（避免串行 LLM 调用导致 48 秒超时）
+        match_tasks = []
         for doc in filtered_docs:
-            cid = doc.get("candidate_id")
-            rid = doc.get("resume_id")
+            rid = doc.get("resume_id", "")
             rerank_score = float(chunk_map.get(rid, {}).get("rerank_score", 0.0))
             match_score = round(rerank_score * 100, 1)
-            reason = await self._match_reason(jd, doc, match_score)
+            match_tasks.append((doc, match_score))
+            reasons.append("")  # 占位
+
+        import asyncio
+        async def _gen_reason(idx: int, doc: dict, ms: float) -> tuple[int, str]:
+            r = await self._match_reason(jd, doc, ms)
+            return idx, r
+
+        reason_results = await asyncio.gather(
+            *[_gen_reason(i, doc, ms) for i, (doc, ms) in enumerate(match_tasks)]
+        )
+        for idx, reason in reason_results:
+            reasons[idx] = reason
+
+        for i, (doc, match_score) in enumerate(match_tasks):
+            cid = doc.get("candidate_id")
+            rid = doc.get("resume_id")
             scored.append({
                 "candidate_id": cid,
                 "resume_id": rid,
@@ -189,7 +208,7 @@ class JdMatchService:
                 "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
                 "match_score": match_score,
                 "score": match_score,  # 兼容前端 CandidateCard 组件（读 score 字段）
-                "reason": reason,
+                "reason": reasons[i],
                 "tags": doc.get("tags", []),
                 "is_favorite": doc.get("is_favorite", False),
                 "summary": doc.get("summary", ""),
