@@ -4,6 +4,7 @@
 作者: TalentSense Team
 功能描述: LangGraph 5 节点单元测试
 """
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.agent.state import make_state
@@ -116,3 +117,74 @@ async def test_intent_node_fallback_to_qa_on_exception():
         state = make_state(query="测试", session_id="s1")
         result = await intent_node(state)
         assert result["intent_type"] == "qa"
+
+
+@pytest.mark.asyncio
+async def test_query_decompose_node_extracts_subqueries_and_filters():
+    """query_decompose_node 应正确拆出 main_query/sub_queries/structured_filters"""
+    from app.agent.nodes import query_decompose_node
+
+    decompose_resp = json.dumps({
+        "main_query": "后端工程师 Python Docker 3年经验",
+        "sub_queries": ["后端工程师 Python Docker", "3年经验后端开发"],
+        "structured_filters": {
+            "required_skills": ["python", "docker"],
+            "work_years_min": 3,
+            "job_type": "后端"
+        }
+    }, ensure_ascii=False)
+
+    state = {
+        "query": "3年经验后端工程师会Python和Docker",
+        "filters": {},
+        "intent_type": "search",
+    }
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value=decompose_resp)
+        result = await query_decompose_node(state)
+
+    assert "decomposed" in result
+    assert "filters" in result
+    decomposed = result["decomposed"]
+    assert decomposed["main_query"] == "后端工程师 Python Docker 3年经验"
+    assert len(decomposed["sub_queries"]) == 2
+    # filters 合并了 structured_filters
+    filters = result["filters"]
+    assert "python" in filters["required_skills"]
+    assert "docker" in filters["required_skills"]
+    assert filters["work_years_min"] == 3
+
+
+@pytest.mark.asyncio
+async def test_query_decompose_node_fallback_on_llm_failure():
+    """LLM 失败时回退到 regex 提取 filters，decomposed 为空 dict"""
+    from app.agent.nodes import query_decompose_node
+
+    state = {
+        "query": "会python的工程师",
+        "filters": {},
+        "intent_type": "search",
+    }
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(side_effect=Exception("LLM 调用失败"))
+        result = await query_decompose_node(state)
+
+    # 兜底：filters 走 regex（python 应被提取）
+    assert "python" in result["filters"].get("required_skills", [])
+    # decomposed 为空 dict，不阻断流程
+    assert result["decomposed"] == {}
+
+
+@pytest.mark.asyncio
+async def test_query_decompose_node_skips_non_search_intent():
+    """非 search 意图不提取，直接返回原 filters"""
+    from app.agent.nodes import query_decompose_node
+
+    state = {
+        "query": "你好",
+        "filters": {"existing": "value"},
+        "intent_type": "chitchat",
+    }
+    result = await query_decompose_node(state)
+    assert result["filters"] == {"existing": "value"}
+    assert result["decomposed"] == {}

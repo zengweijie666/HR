@@ -16,6 +16,8 @@ from app.agent.prompts import (
     CLARIFY_PROMPT,
     SEARCH_RESPOND_PROMPT,
     FILTER_EXTRACT_PROMPT,
+    QUERY_DECOMPOSE_PROMPT,
+    CONTEXT_COMPRESS_PROMPT,
 )
 from app.core.llm_client import llm_client
 from app.core.logger import logger
@@ -136,6 +138,73 @@ async def filter_extract_node(state: AgentState) -> dict:
         logger.warning(f"LLM filter提取失败，使用正则兜底: {e}, regex_filters={regex_filters}")
 
     return {"filters": merged}
+
+
+async def query_decompose_node(state: AgentState) -> dict:
+    """节点1.6: 查询分解（替代 filter_extract_node，合并过滤提取+查询分解）
+
+    在 intent_node 之后、retrieve_rank_node 之前执行。
+    LLM 输出 main_query / sub_queries / structured_filters 三部分。
+    structured_filters 合并到 state.filters（与正则提取的 filters 合并）。
+    仅对 search 意图生效；其他意图不修改 filters。
+
+    入参:
+        state: AgentState（需含 query / filters / intent_type）
+    出参:
+        {"filters": 合并后filters, "decomposed": 分解结果dict}
+    兜底:
+        LLM 失败时 filters 走 _regex_extract_filters，decomposed 为空 dict
+    """
+    intent_type = state.get("intent_type", "search")
+    if intent_type not in ("search", None):
+        return {"filters": state.get("filters", {}), "decomposed": {}}
+
+    query = state.get("query", "")
+    if not query:
+        return {"filters": state.get("filters", {}), "decomposed": {}}
+
+    # 先正则兜底（与原 filter_extract_node 一致）
+    regex_filters = _regex_extract_filters(query)
+    merged = dict(state.get("filters", {}) or {})
+    merged.update(regex_filters)
+
+    decomposed: dict = {}
+    try:
+        prompt = QUERY_DECOMPOSE_PROMPT.format(query=query)
+        resp = await llm_client.chat(
+            [{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.strip())
+        decomposed = {
+            "main_query": data.get("main_query", query),
+            "sub_queries": data.get("sub_queries", [])[:3],  # 最多3个
+            "structured_filters": data.get("structured_filters", {}),
+        }
+        # 合并 structured_filters 到 filters
+        sf = decomposed["structured_filters"]
+        for key in ("education_min", "work_years_min", "salary_max"):
+            val = sf.get(key)
+            if val is not None:
+                try:
+                    merged[key] = int(val)
+                except (TypeError, ValueError):
+                    pass
+        llm_skills = sf.get("required_skills", [])
+        if isinstance(llm_skills, list) and llm_skills:
+            existing = set(merged.get("required_skills", []) or [])
+            for s in llm_skills:
+                if isinstance(s, str) and s.strip():
+                    existing.add(s.strip().lower())
+            merged["required_skills"] = list(existing)
+        logger.info(
+            f"查询分解: query='{query}' → sub_queries={decomposed['sub_queries']}, "
+            f"filters={merged}"
+        )
+    except Exception as e:
+        logger.warning(f"查询分解失败，回退正则提取: {e}, regex_filters={regex_filters}")
+
+    return {"filters": merged, "decomposed": decomposed}
 
 
 async def intent_node(state: AgentState) -> dict:
