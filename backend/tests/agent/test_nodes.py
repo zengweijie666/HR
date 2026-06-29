@@ -50,6 +50,58 @@ async def test_retrieve_rank_node():
 
 
 @pytest.mark.asyncio
+async def test_retrieve_rank_node_passes_decomposed():
+    """retrieve_rank_node 透传 decomposed 到 search_service.search"""
+    with patch("app.agent.nodes.search_service") as mock_svc:
+        mock_svc.search = AsyncMock(return_value=[{"candidate_id": "c1", "score": 80.0}])
+        state = make_state(query="找一个本科以上会Python的候选人", session_id="s1")
+        state["intent_type"] = "search"
+        state["decomposed"] = {
+            "main_query": "Python工程师",
+            "sub_queries": ["Python web开发", "Django经验"],
+            "structured_filters": {"education_min": 1, "required_skills": ["python"]},
+        }
+        await retrieve_rank_node(state)
+        call_kwargs = mock_svc.search.call_args.kwargs
+        assert call_kwargs["decomposed"]["main_query"] == "Python工程师"
+        assert call_kwargs["decomposed"]["sub_queries"] == ["Python web开发", "Django经验"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rank_node_calls_compress_when_chunks_exist():
+    """state 含 chunks 但无 compressed_context 时调用 context_compress_node"""
+    with patch("app.agent.nodes.search_service") as mock_svc, \
+         patch("app.agent.nodes.context_compress_node") as mock_compress:
+        mock_svc.search = AsyncMock(return_value=[{"candidate_id": "c1", "score": 80.0}])
+        mock_compress.return_value = {"compressed_context": {"r1": "压缩后context"}}
+        state = make_state(query="Python工程师", session_id="s1")
+        state["intent_type"] = "search"
+        state["chunks"] = [
+            {"candidate_id": "r1", "parent_content": "chunk1", "rerank_score": 0.8},
+            {"candidate_id": "r1", "parent_content": "chunk2", "rerank_score": 0.6},
+        ]
+        await retrieve_rank_node(state)
+        mock_compress.assert_awaited_once()
+        call_kwargs = mock_svc.search.call_args.kwargs
+        assert call_kwargs["compressed_context"] == {"r1": "压缩后context"}
+
+
+@pytest.mark.asyncio
+async def test_retrieve_rank_node_skip_compress_when_no_chunks():
+    """state 无 chunks 时不调用 context_compress_node"""
+    with patch("app.agent.nodes.search_service") as mock_svc, \
+         patch("app.agent.nodes.context_compress_node") as mock_compress:
+        mock_svc.search = AsyncMock(return_value=[])
+        state = make_state(query="Python", session_id="s1")
+        state["intent_type"] = "search"
+        # 无 chunks
+        await retrieve_rank_node(state)
+        mock_compress.assert_not_awaited()
+        call_kwargs = mock_svc.search.call_args.kwargs
+        assert call_kwargs["compressed_context"] == {}
+
+
+@pytest.mark.asyncio
 async def test_clarify_node():
     """澄清节点（候选人为空时引导）"""
     with patch("app.agent.nodes.llm_client") as mock_llm:

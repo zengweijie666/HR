@@ -234,16 +234,25 @@ async def retrieve_rank_node(state: AgentState) -> dict:
     """节点2: 检索+精排
 
     入参:
-        state: AgentState（需含 query / filters / history）
+        state: AgentState（需含 query / filters / history / decomposed / chunks(可选)）
     出参:
         {"candidates": [...]}
+    流程:
+        1. 若 state 已有 chunks 但无 compressed_context，先调用 context_compress_node 压缩
+        2. 调用 search_service.search 传入 decomposed + compressed_context，触发多路召回
     """
     try:
+        compressed_context = state.get("compressed_context", {}) or {}
+        if not compressed_context and state.get("chunks"):
+            compress_result = await context_compress_node(state)
+            compressed_context = compress_result.get("compressed_context", {})
         candidates = await search_service.search(
             query=state["query"],
             filters=state.get("filters", {}),
             top_k=20,
             history=state.get("history", []),
+            decomposed=state.get("decomposed", {}),
+            compressed_context=compressed_context,
         )
     except Exception as e:
         logger.error(f"检索失败: {e}", exc_info=True)
