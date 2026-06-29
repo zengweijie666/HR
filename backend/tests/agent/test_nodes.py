@@ -188,3 +188,59 @@ async def test_query_decompose_node_skips_non_search_intent():
     result = await query_decompose_node(state)
     assert result["filters"] == {"existing": "value"}
     assert result["decomposed"] == {}
+
+
+@pytest.mark.asyncio
+async def test_context_compress_node_merges_multi_chunks():
+    """同一 resume_id 的多个 chunks 应压缩为单一 context"""
+    from app.agent.nodes import context_compress_node
+
+    chunks = [
+        {"candidate_id": "r1", "parent_content": "张三，5年Python开发，会Django", "rerank_score": 0.9},
+        {"candidate_id": "r1", "parent_content": "张三做过电商后端项目，用Flask", "rerank_score": 0.7},
+        {"candidate_id": "r2", "parent_content": "李四，3年Java", "rerank_score": 0.8},
+    ]
+    state = {"query": "Python后端", "chunks": chunks}
+
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(return_value="张三：5年Python，会Django/Flask，电商后端项目经验")
+        result = await context_compress_node(state)
+
+    assert "compressed_context" in result
+    ctx_map = result["compressed_context"]
+    # r1 有2个chunks，应被压缩
+    assert "r1" in ctx_map
+    assert "张三" in ctx_map["r1"]
+    # r2 只有1个chunk，不压缩，直接用原 parent_content
+    assert "r2" in ctx_map
+    assert ctx_map["r2"] == "李四，3年Java"
+
+
+@pytest.mark.asyncio
+async def test_context_compress_node_fallback_on_llm_failure():
+    """LLM 压缩失败时回退取最高分 chunk 的 parent_content"""
+    from app.agent.nodes import context_compress_node
+
+    chunks = [
+        {"candidate_id": "r1", "parent_content": "张三5年Python", "rerank_score": 0.9},
+        {"candidate_id": "r1", "parent_content": "张三Flask项目", "rerank_score": 0.5},
+    ]
+    state = {"query": "Python", "chunks": chunks}
+
+    with patch("app.agent.nodes.llm_client") as mock_llm:
+        mock_llm.chat = AsyncMock(side_effect=Exception("LLM 失败"))
+        result = await context_compress_node(state)
+
+    ctx_map = result["compressed_context"]
+    # 兜底：用最高分 chunk 的 parent_content
+    assert ctx_map["r1"] == "张三5年Python"
+
+
+@pytest.mark.asyncio
+async def test_context_compress_node_empty_chunks():
+    """无 chunks 时返回空 dict"""
+    from app.agent.nodes import context_compress_node
+
+    state = {"query": "test", "chunks": []}
+    result = await context_compress_node(state)
+    assert result["compressed_context"] == {}

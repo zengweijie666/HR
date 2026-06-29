@@ -324,3 +324,64 @@ async def respond_node(state: AgentState) -> dict:
         logger.error(f"响应生成失败: {e}")
         response = "抱歉，生成回复时出错，请稍后重试。"
     return {"response": response}
+
+
+async def context_compress_node(state: AgentState) -> dict:
+    """节点2.5: 上下文压缩（精排后、硬过滤前）
+
+    对同一 resume_id 的多个 chunks 用 LLM 压缩为单一精炼 context（≤500字）。
+    只对命中 ≥2 chunks 的 resume 压缩；单 chunk 直接用原 parent_content。
+    LLM 失败时回退取最高分 chunk 的 parent_content。
+
+    入参:
+        state: AgentState（需含 chunks / query）
+    出参:
+        {"compressed_context": {resume_id: 压缩后context字符串}}
+    """
+    chunks = state.get("chunks", []) or []
+    query = state.get("query", "")
+    if not chunks:
+        return {"compressed_context": {}}
+
+    # 按 resume_id 分组
+    groups: dict[str, list[dict]] = {}
+    for c in chunks:
+        rid = c.get("candidate_id", "")
+        if not rid:
+            continue
+        groups.setdefault(rid, []).append(c)
+
+    async def _compress_one(rid: str, rchunks: list[dict]) -> tuple[str, str]:
+        """压缩单个简历的多 chunks
+
+        入参:
+            rid: resume_id
+            rchunks: 该简历的所有 chunks
+        出参:
+            (rid, 压缩后或兜底的 context 字符串)
+        """
+        if len(rchunks) <= 1:
+            return rid, rchunks[0].get("parent_content", "")
+        # 按rerank_score降序拼接
+        sorted_chunks = sorted(rchunks, key=lambda x: x.get("rerank_score", 0), reverse=True)
+        chunks_text = "\n---\n".join(
+            c.get("parent_content", "") for c in sorted_chunks if c.get("parent_content")
+        )
+        try:
+            prompt = CONTEXT_COMPRESS_PROMPT.format(query=query, chunks_text=chunks_text)
+            resp = await llm_client.chat([{"role": "user", "content": prompt}])
+            compressed_text = resp.strip()[:500]  # 硬截断500字
+            logger.info(f"上下文压缩: resume_id={rid}, {len(rchunks)} chunks → {len(compressed_text)} 字")
+            return rid, compressed_text
+        except Exception as e:
+            logger.warning(f"上下文压缩失败，回退最高分chunk: resume_id={rid}, {e}")
+            return rid, sorted_chunks[0].get("parent_content", "")
+
+    # 并发压缩
+    import asyncio
+    results = await asyncio.gather(*[_compress_one(rid, rchs) for rid, rchs in groups.items()])
+    compressed: dict[str, str] = {}
+    for rid, ctx in results:
+        compressed[rid] = ctx
+
+    return {"compressed_context": compressed}
