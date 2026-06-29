@@ -216,7 +216,10 @@ class SearchService:
         # 拉取候选人元数据
         candidate_ids = [c["candidate_id"] for c in candidate_chunks if c.get("candidate_id")]
         logger.info(f"准备查询MongoDB的候选人ID数: {len(candidate_ids)}, IDs={candidate_ids}")
-        results = await self._enrich_candidates(candidate_ids, query, candidate_chunks, filters)
+        results = await self._enrich_candidates(
+            candidate_ids, query, candidate_chunks, filters,
+            compressed_context=compressed_context,
+        )
 
         # 最终排序取 top_k
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -284,6 +287,7 @@ class SearchService:
         query: str,
         chunks: list[dict],
         filters: dict = None,
+        compressed_context: dict = None,
     ) -> list[dict]:
         """拉取候选人元数据 + Python内存过滤 + LLM评分
 
@@ -292,6 +296,7 @@ class SearchService:
             query: 原始查询
             chunks: 检索chunks（每个resume_id一个最佳chunk，用于rerank_score）
             filters: 过滤条件（用于Python内存硬过滤兜底）
+            compressed_context: {resume_id: 压缩后context字符串}，覆盖 chunk 的 parent_content
         出参:
             候选人卡片列表（按score降序）
         """
@@ -304,6 +309,13 @@ class SearchService:
         docs = await cursor.to_list(length=len(candidate_ids))
         logger.info(f"MongoDB 查询到 {len(docs)} 条简历文档")
         chunk_map = {c.get("candidate_id"): c for c in chunks}
+        # 若有压缩 context，覆盖 chunk 的 parent_content，让 LLM 评分基于精炼摘要
+        if compressed_context:
+            for rid, ctx in compressed_context.items():
+                if rid in chunk_map:
+                    chunk_map[rid]["parent_content"] = ctx
+                else:
+                    chunk_map[rid] = {"candidate_id": rid, "parent_content": ctx, "rerank_score": 0.0}
 
         # Python 内存硬过滤（兜底 Milvus 层过滤，防止已有数据scalar字段未更新时过滤失效）
         edu_min = filters.get("education_min")
