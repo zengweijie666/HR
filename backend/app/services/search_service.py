@@ -239,8 +239,18 @@ class SearchService:
         years_min = filters.get("work_years_min")
         sal_max = filters.get("salary_max")
         required_skills = filters.get("required_skills", []) or []
+        # 【关键修复】领域同义词扩展：nlp→[nlp,bert,fasttext,...]，html 保持严格
+        # 领域词（nlp/cv/ai/ml/dl/frontend/backend/devops）代表技术方向，
+        # 候选人可能写了领域下的具体技术（BERT/Transformer）但没写领域名，需要扩展避免误杀。
+        # 具体技术（html/java/python/react）不扩展，保持精确匹配。
+        try:
+            from app.utils.skill_synonyms import expand_required_skills
+            expanded_skills = expand_required_skills(required_skills)
+        except Exception as e:
+            logger.warning(f"required_skills 领域扩展失败，使用原始列表: {e}")
+            expanded_skills = required_skills
         # 技能关键词统一小写，便于匹配
-        required_skills_lower = [s.lower() for s in required_skills if isinstance(s, str)]
+        required_skills_lower = [s.lower() for s in expanded_skills if isinstance(s, str)]
         filtered_docs: list[dict] = []
         for doc in docs:
             doc_edu = doc.get("education_level", 1)
