@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from app.services.jd_match_service import JdMatchService
 from app.api.deps import get_current_user
-from app.core.response import success
+from app.core.response import success, error
+from app.core.logger import logger
 
 router = APIRouter()
 
@@ -24,8 +25,12 @@ class JdMatchRequest(BaseModel):
 @router.post("")
 async def match_jd(body: JdMatchRequest, user: dict = Depends(get_current_user)):
     """AC19.1-19.2: JD 匹配候选人"""
-    result = await JdMatchService().match_jd(
-        jd_text=body.jd_text,
-        top_k=body.top_k,
-    )
-    return success(data=result)
+    try:
+        result = await JdMatchService().match_jd(
+            jd_text=body.jd_text,
+            top_k=body.top_k,
+        )
+        return success(data=result)
+    except Exception as e:
+        logger.error(f"JD 匹配失败: {e}", exc_info=True)
+        return error(code=5000, message=f"JD 匹配失败: {str(e)}")

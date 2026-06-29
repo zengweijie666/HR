@@ -59,7 +59,11 @@ class JdMatchService:
             f"{' '.join(jd.get('skills', []))} "
             f"{jd.get('work_years_min', 0)}年经验"
         ).strip()
-        dense, sparse = self.embedding.encode([query])
+        try:
+            dense, sparse = self.embedding.encode([query])
+        except Exception as e:
+            logger.error(f"JD 匹配 embedding 编码失败: {e}", exc_info=True)
+            return {"jd": jd, "candidates": []}
 
         # 3. 构造过滤条件（JD中的硬条件传Milvus）
         milvus_filters = {}
@@ -70,9 +74,13 @@ class JdMatchService:
 
         # 4. 混合检索（扩大召回，避免多chunk导致候选人被截断）
         retrieve_k = max(top_k * 5, 50)
-        chunks = await self.vector_store.hybrid_search(
-            dense, sparse, filters=milvus_filters, top_k=retrieve_k
-        )
+        try:
+            chunks = await self.vector_store.hybrid_search(
+                dense, sparse, filters=milvus_filters, top_k=retrieve_k
+            )
+        except Exception as e:
+            logger.error(f"JD 匹配 Milvus 检索失败: {e}", exc_info=True)
+            chunks = []
 
         # 5. Reranker 精排 + resume级去重
         if chunks:
@@ -180,6 +188,7 @@ class JdMatchService:
                 "skills": doc.get("skills", []),
                 "expected_salary": doc.get("expected_salary", {"min": 0, "max": 0}),
                 "match_score": match_score,
+                "score": match_score,  # 兼容前端 CandidateCard 组件（读 score 字段）
                 "reason": reason,
                 "tags": doc.get("tags", []),
                 "is_favorite": doc.get("is_favorite", False),
