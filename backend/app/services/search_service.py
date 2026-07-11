@@ -173,7 +173,9 @@ class SearchService:
             docs = [c.get("parent_content", "") for c in unique_chunks]
             logger.info(f"Reranker 精排开始, {len(docs)} 个chunks")
             try:
-                scores = self.reranker.rerank(query, docs)
+                # 【关键修复】用 asyncio.to_thread 包装同步 compute_score，避免阻塞事件循环
+                # 原先同步调用会阻塞整个 FastAPI 事件循环，导致精排期间 SSE 无法推送、其他请求卡死
+                scores = await asyncio.to_thread(self.reranker.rerank, query, docs)
                 if scores is None:
                     logger.warning("Reranker 返回 None, 跳过精排")
                     scores = []

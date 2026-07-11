@@ -24,6 +24,8 @@ export const useChatStore = defineStore('chat', () => {
   const intent = ref<string>('')
   /** 当前检索策略 */
   const strategy = ref<string>('')
+  /** 当前精排阶段进度提示 */
+  const progressMessage = ref<string>('')
 
   /**
    * 设置会话列表
@@ -85,6 +87,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * 设置当前进度提示
+   * @param msg 进度提示文本
+   */
+  function setProgressMessage(msg: string): void {
+    progressMessage.value = msg
+  }
+
+  /**
    * 更新指定会话的标题（用于首条消息后由后端 done 事件回传新标题）
    * @param sessionId 会话 ID
    * @param title 新标题
@@ -112,6 +122,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     intent.value = ''
     strategy.value = ''
+    progressMessage.value = ''
     streaming.value = false
   }
 
@@ -122,6 +133,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming,
     intent,
     strategy,
+    progressMessage,
     setSessions,
     setCurrentSession,
     setMessages,
@@ -129,6 +141,7 @@ export const useChatStore = defineStore('chat', () => {
     appendToken,
     setIntent,
     setStrategy,
+    setProgressMessage,
     updateSessionTitle,
     startStream,
     stopStream,

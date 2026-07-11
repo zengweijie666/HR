@@ -20,5 +20,7 @@ export interface SearchRequest {
  * @returns 候选人卡片数组
  */
 export function search(params: SearchRequest): Promise<CandidateCard[]> {
-  return request.post('/search', params) as unknown as Promise<CandidateCard[]>
+  // 检索+精排+20个候选人 LLM 并发评分耗时较长，单独放宽到 2 分钟
+  // 全局 30s timeout 会误杀该接口，此处覆盖
+  return request.post('/search', params, { timeout: 120000 }) as unknown as Promise<CandidateCard[]>
 }

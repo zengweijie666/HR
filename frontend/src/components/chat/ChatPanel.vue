@@ -15,7 +15,11 @@
     <header class="chat-panel__header">
       <h3 class="chat-panel__title decor-line">{{ currentTitle }}</h3>
       <div v-if="chatStore.streaming" class="chat-panel__indicator">
-        <StreamIndicator :intent="chatStore.intent" :strategy="chatStore.strategy" />
+        <StreamIndicator
+          :intent="chatStore.intent"
+          :strategy="chatStore.strategy"
+          :progress-message="chatStore.progressMessage"
+        />
       </div>
     </header>
 
@@ -169,7 +173,16 @@ async function handleSend(): Promise<void> {
             last.strategy = data.strategy
           }
         },
-        onToken: (delta) => chatStore.appendToken(delta),
+        onProgress: (data) => {
+          chatStore.setProgressMessage(data.message)
+        },
+        onToken: (delta) => {
+          // 收到 token 后清除进度提示，进入流式输出阶段
+          if (chatStore.progressMessage) {
+            chatStore.setProgressMessage('')
+          }
+          chatStore.appendToken(delta)
+        },
         onCandidates: (candidates) => {
           const last = chatStore.messages[chatStore.messages.length - 1]
           if (last && last.role === 'assistant') {
@@ -179,12 +192,14 @@ async function handleSend(): Promise<void> {
         onDone: (data) => {
           chatStore.setIntent('')
           chatStore.setStrategy('')
+          chatStore.setProgressMessage('')
           // 首条消息后端会回传新标题，同步到 sessions 列表
           if (data.title) {
             chatStore.updateSessionTitle(sessionId, data.title)
           }
         },
         onError: (data) => {
+          chatStore.setProgressMessage('')
           ElMessage.error(data.message || '流式响应出错')
         },
       },

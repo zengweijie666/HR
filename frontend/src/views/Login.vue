@@ -19,7 +19,7 @@
         </span>
 
         <h1 class="page-login__title">
-          智能招聘的<br />编辑学
+          智能招聘的<br />AI系统
         </h1>
 
         <p class="page-login__subtitle">

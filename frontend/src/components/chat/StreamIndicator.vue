@@ -10,7 +10,8 @@
 <template>
   <div class="stream-indicator">
     <span class="stream-indicator__dot" aria-hidden="true" />
-    <span class="stream-indicator__text">生成中</span>
+    <span v-if="progressMessage" class="stream-indicator__text">{{ progressMessage }}</span>
+    <span v-else class="stream-indicator__text">生成中</span>
     <span v-if="intentLabel" class="stream-indicator__tag">{{ intentLabel }}</span>
     <span v-if="strategyLabel" class="stream-indicator__tag">{{ strategyLabel }}</span>
   </div>
@@ -20,6 +21,7 @@
 /**
  * StreamIndicator 流式输出指示器
  * 根据 intent / strategy 显示中文标签，配合脉冲动画
+ * 精排阶段显示 progressMessage 进度提示
  */
 import { computed } from 'vue'
 import { INTENT_TYPES, STRATEGY_TYPES } from '@/utils/constant'
@@ -29,6 +31,8 @@ interface StreamIndicatorProps {
   intent?: string
   /** 检索策略（英文 key） */
   strategy?: string
+  /** 精排阶段进度提示 */
+  progressMessage?: string
 }
 
 const props = defineProps<StreamIndicatorProps>()

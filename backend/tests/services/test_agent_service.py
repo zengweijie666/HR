@@ -103,7 +103,8 @@ async def test_send_message_stream_qa_branch_skips_retrieval(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
+         patch.object(svc, "_save_user_message", AsyncMock(return_value=None)), \
+         patch.object(svc, "_save_assistant_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(*args, **kwargs):
             for tok in ["这是", "通用", "回答"]:
@@ -142,7 +143,8 @@ async def test_retrieve_empty_yields_candidates_event(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "search"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
+         patch.object(svc, "_save_user_message", AsyncMock(return_value=None)), \
+         patch.object(svc, "_save_assistant_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(*args, **kwargs):
             yield "未找到匹配候选人"
@@ -167,31 +169,31 @@ async def test_retrieve_empty_yields_candidates_event(svc):
 
 
 @pytest.mark.asyncio
-async def test_save_message_updates_title_on_first(svc):
+async def test_save_user_message_updates_title_on_first(svc):
     """首条消息应更新标题为 query 前 20 字"""
     # 模拟空 messages（首条）
     svc.sessions_coll.find_one = AsyncMock(return_value={"session_id": "s1", "messages": []})
     svc.sessions_coll.update_one = AsyncMock()
 
-    await svc._save_message(
+    title = await svc._save_user_message(
         session_id="s1",
         message_id="m1",
         query="推荐前端工程师熟悉Vue3和TypeScript",
-        response="好的",
-        state={"intent_type": "search"},
     )
 
+    # 验证返回标题
+    expected_title = "推荐前端工程师熟悉Vue3和TypeScript"[:20]
+    assert title == expected_title
     # 验证 update_one 被调用，且 $set 包含 title
     call_args = svc.sessions_coll.update_one.call_args
     update_doc = call_args.kwargs.get("update") or call_args.args[1]
     assert "$set" in update_doc
     assert "title" in update_doc["$set"]
-    expected_title = "推荐前端工程师熟悉Vue3和TypeScript"[:20]
     assert update_doc["$set"]["title"] == expected_title
 
 
 @pytest.mark.asyncio
-async def test_save_message_no_title_update_on_subsequent(svc):
+async def test_save_user_message_no_title_update_on_subsequent(svc):
     """非首条消息不应更新标题"""
     # 模拟已有消息（非首条）
     svc.sessions_coll.find_one = AsyncMock(return_value={
@@ -200,14 +202,13 @@ async def test_save_message_no_title_update_on_subsequent(svc):
     })
     svc.sessions_coll.update_one = AsyncMock()
 
-    await svc._save_message(
+    title = await svc._save_user_message(
         session_id="s1",
         message_id="m2",
         query="第二个问题",
-        response="回答",
-        state={"intent_type": "search"},
     )
 
+    assert title is None
     call_args = svc.sessions_coll.update_one.call_args
     update_doc = call_args.kwargs.get("update") or call_args.args[1]
     assert "$set" in update_doc
@@ -313,7 +314,8 @@ async def test_compare_reuses_last_candidates_no_new_retrieval(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "compare"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
+         patch.object(svc, "_save_user_message", AsyncMock(return_value=None)), \
+         patch.object(svc, "_save_assistant_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(*args, **kwargs):
             yield "对比结果"
@@ -433,7 +435,8 @@ async def test_qa_with_candidates_context(svc):
     with patch("app.services.agent_service.intent_node", AsyncMock(return_value={"intent_type": "qa"})), \
          patch("app.services.agent_service.retrieve_rank_node", mock_retrieve), \
          patch("app.services.agent_service.llm_client") as mock_llm, \
-         patch.object(svc, "_save_message", AsyncMock(return_value={"title": None})):
+         patch.object(svc, "_save_user_message", AsyncMock(return_value=None)), \
+         patch.object(svc, "_save_assistant_message", AsyncMock(return_value={"title": None})):
 
         async def fake_stream(messages, **kwargs):
             passed_messages["value"] = messages

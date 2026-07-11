@@ -55,6 +55,9 @@ export function dispatch(event: string, data: unknown, handlers: SSEHandlers): v
     case 'intent':
       handlers.onIntent?.(data as { intent: string; strategy: string })
       break
+    case 'progress':
+      handlers.onProgress?.(data as { stage: string; message: string })
+      break
     case 'rewrite':
       handlers.onRewrite?.(data as { query: string; rewrites: string[] })
       break

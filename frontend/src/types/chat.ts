@@ -27,6 +27,7 @@ export interface ChatMessage {
 /** SSE 事件类型，对应 API-Design.md 0.5 */
 export type SSEEvent =
   | { event: 'intent'; data: { intent: string; strategy: string } }
+  | { event: 'progress'; data: { stage: string; message: string } }
   | { event: 'rewrite'; data: { query: string; rewrites: string[] } }
   | { event: 'retrieval'; data: { count: number; candidate_ids: string[] } }
   | { event: 'rank'; data: { ranked: { candidate_id: string; score: number }[] } }
@@ -37,6 +38,7 @@ export type SSEEvent =
 
 export interface SSEHandlers {
   onIntent?: (data: { intent: string; strategy: string }) => void
+  onProgress?: (data: { stage: string; message: string }) => void
   onRewrite?: (data: { query: string; rewrites: string[] }) => void
   onRetrieval?: (data: { count: number; candidate_ids: string[] }) => void
   onRank?: (data: { ranked: { candidate_id: string; score: number }[] }) => void

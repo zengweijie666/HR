@@ -158,6 +158,10 @@ class AgentService:
             last_candidates=last_candidates,
         )
 
+        # 【关键修复】提前保存 user 消息，确保精排期间刷新页面不丢失对话
+        # 原先 _save_message 在流结束后才保存，精排耗时较长时刷新会丢失整条对话
+        first_msg_title = await self._save_user_message(session_id, message_id, query)
+
         try:
             # 1. 意图识别事件
             intent_result = await intent_node(state)
@@ -201,11 +205,13 @@ class AgentService:
 
             if need_retrieve:
                 # 2.1 查询分解（合并过滤提取 + 查询分解，输出 decomposed + filters）
+                yield _sse_event("progress", {"stage": "analyzing", "message": "正在分析查询..."})
                 decompose_result = await query_decompose_node(state)
                 state.update(decompose_result)
                 logger.info(f"提取的过滤条件: {state.get('filters', {})}, 分解: {state.get('decomposed', {})}")
 
                 # 2.2 检索+精排
+                yield _sse_event("progress", {"stage": "searching", "message": "正在检索候选人..."})
                 retrieve_result = await retrieve_rank_node(state)
                 state.update(retrieve_result)
                 candidates = state.get("candidates", [])
@@ -345,6 +351,7 @@ class AgentService:
                 ]
 
             try:
+                yield _sse_event("progress", {"stage": "generating", "message": "正在生成回复..."})
                 async for tok in llm_client.chat_stream(messages):
                     full_response += tok
                     yield _sse_event("token", {"delta": tok})
@@ -352,9 +359,10 @@ class AgentService:
                 logger.error(f"流式生成失败: {e}")
                 full_response = "抱歉，生成回复时出错。"
 
-            # 4. 保存消息（首条消息时返回新标题）
-            save_result = await self._save_message(session_id, message_id, query, full_response, state)
-            new_title = save_result.get("title") if save_result else None
+            # 4. 保存 assistant 消息（user 消息已在流开始时提前保存）
+            await self._save_assistant_message(session_id, message_id, full_response, state)
+            # 首条消息标题已在 _save_user_message 中设置
+            new_title = first_msg_title
 
             yield _sse_event("done", {
                 "message_id": message_id,
@@ -366,29 +374,20 @@ class AgentService:
             logger.error(f"对话流式失败: {e}")
             yield _sse_event("error", {"code": 5001, "message": str(e)})
 
-    async def _save_message(
-        self,
-        session_id: str,
-        message_id: str,
-        query: str,
-        response: str,
-        state: dict,
-    ) -> dict:
-        """保存用户与助手消息，首条消息时自动更新会话标题
+    async def _save_user_message(self, session_id: str, message_id: str, query: str) -> str | None:
+        """流开始时立即保存 user 消息，确保精排期间刷新页面不丢失对话
 
         入参:
             session_id: 会话 ID
-            message_id: 消息 ID
+            message_id: 关联的 assistant 消息 ID（user 消息 ID 为 {message_id}_u）
             query: 用户查询
-            response: 助手回复
-            state: 当前 AgentState
         出参:
-            {"title": new_title or None} 首条消息返回新标题，非首条返回 None
+            首条消息时返回新标题，非首条返回 None
         """
         now = datetime.now(timezone.utc).isoformat()
         new_title = None
         try:
-            # 检查是否首条消息
+            # 检查是否首条消息，首条时同步更新标题
             session = await self.sessions_coll.find_one(
                 {"session_id": session_id}, {"messages": 1}
             )
@@ -401,7 +400,44 @@ class AgentService:
                                 "role": "user",
                                 "content": query,
                                 "created_at": now,
-                            },
+                            }
+                        ],
+                        "$slice": -20,
+                    }
+                },
+                "$set": {"updated_at": now},
+            }
+            if session and not session.get("messages"):
+                new_title = query[:20].strip() or "新会话"
+                update["$set"]["title"] = new_title
+            await self.sessions_coll.update_one({"session_id": session_id}, update=update)
+        except Exception as e:
+            logger.error(f"保存 user 消息失败: {e}")
+        return new_title
+
+    async def _save_assistant_message(
+        self,
+        session_id: str,
+        message_id: str,
+        response: str,
+        state: dict,
+    ) -> dict:
+        """流结束后保存 assistant 消息
+
+        入参:
+            session_id: 会话 ID
+            message_id: 消息 ID
+            response: 助手回复
+            state: 当前 AgentState
+        出参:
+            {"title": None} 标题已在 _save_user_message 首条消息时设置，此处返回 None
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            update = {
+                "$push": {
+                    "messages": {
+                        "$each": [
                             {
                                 "message_id": message_id,
                                 "role": "assistant",
@@ -410,53 +446,17 @@ class AgentService:
                                 "strategy": state.get("strategy"),
                                 "candidates": state.get("candidates"),
                                 "created_at": now,
-                            },
+                            }
                         ],
-                        "$slice": -20,  # 保留最近 20 条
+                        "$slice": -20,
                     }
                 },
                 "$set": {"updated_at": now},
             }
-            # 首条消息自动更新标题
-            if session and not session.get("messages"):
-                new_title = query[:20].strip() or "新会话"
-                update["$set"]["title"] = new_title
             await self.sessions_coll.update_one({"session_id": session_id}, update=update)
         except Exception as e:
-            logger.error(f"保存消息失败: {e}")
-            # 标题更新失败不阻塞消息保存，至少保存消息
-            try:
-                await self.sessions_coll.update_one(
-                    {"session_id": session_id},
-                    update={
-                        "$push": {
-                            "messages": {
-                                "$each": [
-                                    {
-                                        "message_id": f"{message_id}_u",
-                                        "role": "user",
-                                        "content": query,
-                                        "created_at": now,
-                                    },
-                                    {
-                                        "message_id": message_id,
-                                        "role": "assistant",
-                                        "content": response,
-                                        "intent_type": state.get("intent_type"),
-                                        "strategy": state.get("strategy"),
-                                        "candidates": state.get("candidates"),
-                                        "created_at": now,
-                                    },
-                                ],
-                                "$slice": -20,
-                            }
-                        },
-                        "$set": {"updated_at": now},
-                    },
-                )
-            except Exception as inner_e:
-                logger.error(f"消息保存兜底也失败: {inner_e}")
-        return {"title": new_title}
+            logger.error(f"保存 assistant 消息失败: {e}")
+        return {"title": None}
 
     @staticmethod
     def _extract_last_candidates(history: list[dict]) -> list[dict]:
