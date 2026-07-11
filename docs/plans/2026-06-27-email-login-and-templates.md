@@ -2211,7 +2211,7 @@ Expected: 构建成功
 
 ```bash
 # 1. 邮箱登录
-curl -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@talentsense.local\",\"password\":\"admin123\"}"
+curl -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d "{\"email\":\"your-admin-email\",\"password\":\"your-admin-password\"}"
 
 # 2. 模板列表
 curl http://localhost:8000/api/v1/email/templates -H "Authorization: Bearer <token>"

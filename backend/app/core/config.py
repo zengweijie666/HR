@@ -27,19 +27,19 @@ class Settings(BaseSettings):
     MILVUS_PORT: int = 19530
     MILVUS_COLLECTION: str = "resumes"
 
-    # MinIO
+    # MinIO（敏感：从 .env 读取，不提供默认值）
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_ACCESS_KEY: str
+    MINIO_SECRET_KEY: str
     MINIO_BUCKET: str = "resumes"
     MINIO_SECURE: bool = False
 
-    # LLM
+    # LLM（必填：从 .env 读取）
     LLM_API_KEY: str
     LLM_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     LLM_MODEL: str = "qwen-plus"
 
-    # JWT
+    # JWT（必填：生产环境必须修改）
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
@@ -55,10 +55,10 @@ class Settings(BaseSettings):
     RETRIEVE_TOP_K: int = 20
     RERANK_TOP_K: int = 10
 
-    # 管理员初始化（启动时自动创建）
+    # 管理员初始化（启动时自动创建，凭据从 .env 读取，不提供默认密码）
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "admin123"
-    ADMIN_EMAIL: str = "a****@********"
+    ADMIN_PASSWORD: str
+    ADMIN_EMAIL: str
 
     # 可观测性
     SENTRY_DSN: str = ""

@@ -41,3 +41,6 @@ backend/models/
 *.tmp
 *.swp
 *~
+
+# TRAE IDE 技能目录（不推送）
+.trae/

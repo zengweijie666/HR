@@ -702,7 +702,7 @@
 
 若答辩包含现场演示，建议按以下流程展示（约 3-5 分钟）：
 
-1. **登录**（30s）：用 admin@talentsense.com / admin123 登录，展示邮箱登录方式
+1. **登录**（30s）：用 .env 中配置的 ADMIN_EMAIL / ADMIN_PASSWORD 登录，展示邮箱登录方式
 2. **简历上传**（1min）：上传一份 DOCX 简历，展示后台解析流程（状态从 parsing → ready）
 3. **工作台对话**（1.5min）：
    - 输入"推荐前端工程师"→ 展示 SSE 流式 token + 4 维度评分卡片

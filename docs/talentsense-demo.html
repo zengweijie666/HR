@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<!--
+  文件名: talentsense-demo.html
+  创建时间: 2026-07-07
+  作者: TalentSense Team
+  功能描述: TalentSense HR 智能招聘系统交互式演示页面(单文件 SPA)
+           用于 Trae AI 创造力大赛展示。纯 HTML/CSS/JS 实现,数据全部 Mock。
+           包含:登录页、工作台(对话+推荐)、简历库、JD匹配、邮件中心、数据看板。
+           设计风格:Editorial Tech(深墨绿 + 琥珀金 + 衬线标题 + grain 纹理)。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TalentSense HR · 智能招聘AI系统</title>
+
+<!-- Google Fonts: Fraunces(衬线标题) + Manrope(无衬线正文) + JetBrains Mono(代码) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Chart.js 图表库(CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+/* ============================================================
+   一、设计系统(CSS 变量)
+   ============================================================ */
+:root {
+  /* 主色调 - 深墨绿系 */
+  --color-primary: #1a3a32;
+  --color-primary-soft: #2d5247;
+  --color-primary-tint: #e8efec;
+
+  /* 强调色 - 琥珀金 */
+  --color-accent: #c8924a;
+  --color-accent-soft: #e0b876;
+  --color-accent-deep: #9c6f2e;
+
+  /* 辅助色 */
+  --color-coral: #d97757;          /* 收藏/警示 */
+  --color-sage: #87a878;           /* 成功 */
+  --color-ink: #2a2826;            /* 主文字 */
+  --color-ink-soft: #5c5751;       /* 次文字 */
+  --color-ink-mute: #918b82;       /* 弱文字 */
+  --color-line: #e3ddd2;           /* 分割线 */
+  --color-bg: #faf7f1;             /* 主背景 - 奶白 */
+  --color-bg-card: #ffffff;        /* 卡片背景 */
+  --color-bg-deep: #1a3a32;        /* 深色背景 */
+
+  /* 维度色(评分条) */
+  --color-skill: #5b8def;          /* skill 蓝 */
+  --color-exp: #87a878;            /* experience 绿 */
+  --color-edu: #e0b876;            /* education 橙 */
+  --color-sal: #e89bb0;            /* salary 粉 */
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
+
+  /* 阴影 */
+  --shadow-sm: 0 2px 8px rgba(26, 58, 50, 0.06);
+  --shadow-md: 0 6px 24px rgba(26, 58, 50, 0.08);
+  --shadow-lg: 0 16px 48px rgba(26, 58, 50, 0.12);
+
+  /* 字体 */
+  --font-display: 'Fraunces', 'Noto Serif SC', Georgia, serif;
+  --font-body: 'Manrope', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', Consolas, monospace;
+
+  /* 缓动 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============================================================
+   二、基础重置
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; width: 100%; }
+
+body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-ink);
+  background-color: var(--color-bg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+a { color: var(--color-accent-deep); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, textarea, select { font-family: inherit; }
+
+/* Grain 纹理叠加 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.22 0 0 0 0 0.2 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(45, 82, 71, 0.35); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-primary-soft); }
+::selection { background: rgba(200, 146, 74, 0.25); color: var(--color-primary); }
+
+/* ============================================================
+   三、通用组件
+   ============================================================ */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.eyebrow::before {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: var(--color-accent);
+}
+
+/* 带下划线装饰的标题 */
+.decor-title { position: relative; display: inline-block; padding-bottom: 10px; }
+.decor-title::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 36px; height: 2px;
+  background: var(--color-accent);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  transition: all 0.2s var(--ease-out);
+  white-space: nowrap;
+}
+.btn-primary { background: var(--color-primary); color: #fff; }
+.btn-primary:hover { background: var(--color-primary-soft); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-primary:active { transform: translateY(0); }
+.btn-outline { background: transparent; color: var(--color-primary); border: 1px solid var(--color-line); }
+.btn-outline:hover { border-color: var(--color-accent); color: var(--color-accent-deep); background: var(--color-primary-tint); }
+.btn-ghost { background: transparent; color: var(--color-ink-soft); }
+.btn-ghost:hover { color: var(--color-primary); background: var(--color-primary-tint); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-tint);
+  color: var(--color-primary);
+}
+.tag-accent { background: rgba(200, 146, 74, 0.14); color: var(--color-accent-deep); }
+.tag-sage { background: rgba(135, 168, 120, 0.18); color: #5e7d52; }
+.tag-coral { background: rgba(217, 119, 87, 0.14); color: #b85a3e; }
+
+.input, .select, .textarea {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 13px;
+  color: var(--color-ink);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+.input:focus, .select:focus, .textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(200, 146, 74, 0.12);
+}
+.textarea { resize: vertical; min-height: 80px; line-height: 1.6; }
+.select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23918b82' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 34px; }
+
+/* ============================================================
+   四、登录页
+   ============================================================ */
+#loginPage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  z-index: 100;
+  transition: opacity 0.5s var(--ease-out);
+}
+#loginPage.hide { opacity: 0; pointer-events: none; }
+
+.login-left {
+  flex: 0 0 60%;
+  background: var(--color-bg-deep);
+  color: #fff;
+  padding: 64px 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+.login-left::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+.login-left > * { position: relative; z-index: 1; }
+
+.login-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--color-accent-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+.login-eyebrow::before { content: ''; width: 22px; height: 1px; background: var(--color-accent); }
+
+.login-title {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 300;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: #fff;
+  margin-bottom: 28px;
+}
+.login-title em { font-style: italic; color: var(--color-accent-soft); font-weight: 400; }
+
+.login-sub {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.7);
+  max-width: 460px;
+  margin-bottom: 48px;
+  line-height: 1.7;
+}
+
+.login-features { list-style: none; display: flex; flex-direction: column; gap: 16px; max-width: 440px; }
+.login-features li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 500;
+}
+.login-features li::before {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+/* 左下角几何装饰 */
+.login-decor {
+  position: absolute;
+  right: 80px;
+  bottom: 80px;
+  width: 180px;
+  height: 180px;
+  z-index: 1;
+}
+.login-decor .ring {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border: 1px solid rgba(224, 184, 118, 0.5);
+  border-radius: 50%;
+  right: 0;
+  bottom: 0;
+}
+.login-decor .ring::before {
+  content: '';
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  border: 1px solid rgba(224, 184, 118, 0.3);
+  border-radius: 50%;
+  right: 20px;
+  bottom: 20px;
+}
+.login-decor .dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  right: 64px;
+  bottom: 64px;
+}
+
+.login-right {
+  flex: 0 0 40%;
+  background: var(--color-bg);
+  padding: 64px 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.login-right .eyebrow { margin-bottom: 20px; }
+.login-right h2 { font-size: 34px; margin-bottom: 12px; }
+.login-right .sub { font-size: 14px; color: var(--color-ink-soft); margin-bottom: 40px; }
+
+.login-form { display: flex; flex-direction: column; gap: 18px; max-width: 380px; }
+.field-group label { display: block; font-size: 12px; font-weight: 600; color: var(--color-ink-soft); margin-bottom: 8px; letter-spacing: 0.04em; }
+.login-form .btn-primary { width: 100%; padding: 13px; font-size: 14px; margin-top: 6px; }
+
+.login-footer { margin-top: auto; padding-top: 48px; font-size: 11px; color: var(--color-ink-mute); letter-spacing: 0.06em; }
+
+/* ============================================================
+   五、主应用布局
+   ============================================================ */
+#app {
+  display: none;
+  height: 100vh;
+  width: 100vw;
+}
+#app.show { display: flex; animation: fadeIn 0.5s var(--ease-out); }
+
+/* 侧边栏 */
+.sidebar {
+  flex: 0 0 240px;
+  background: var(--color-bg-deep);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 0;
+}
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 24px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.sidebar-logo .logo-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 12px rgba(200, 146, 74, 0.6);
+}
+.sidebar-logo .logo-text {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.sidebar-menu { list-style: none; padding: 14px 0; flex: 1; }
+.sidebar-menu li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 24px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+.sidebar-menu li .icon { font-size: 16px; width: 20px; text-align: center; }
+.sidebar-menu li:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+.sidebar-menu li.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.sidebar-menu li.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  background: var(--color-accent);
+  border-radius: 0 2px 2px 0;
+}
+.sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 11px; color: rgba(255,255,255,0.4); }
+
+/* 主体区 */
+.main-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  flex: 0 0 60px;
+  background: var(--color-bg-card);
+  border-bottom: 1px solid var(--color-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+.topbar-left { display: flex; align-items: center; gap: 14px; }
+.collapse-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-soft);
+  transition: all 0.2s;
+}
+.collapse-btn:hover { background: var(--color-primary-tint); color: var(--color-primary); }
+.topbar-title { font-family: var(--font-display); font-size: 20px; font-weight: 500; color: var(--color-primary); }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 15px;
+  font-family: var(--font-display);
+}
+.user-meta .name { font-size: 13px; font-weight: 600; color: var(--color-ink); }
+.user-meta .role { font-size: 11px; color: var(--color-ink-mute); }
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--color-bg);
+}
+
+/* 视图切换 */
+.view { display: none; animation: fadeInUp 0.4s var(--ease-out) both; }
+.view.active { display: block; }
+
+/* ============================================================
+   六、工作台视图
+   ============================================================ */
+.workbench { display: flex; gap: 18px; height: calc(100vh - 60px - 48px); }
+
+/* 会话列表 */
+.session-col {
+  flex: 0 0 260px;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.session-col .new-btn {
+  margin: 16px;
+  padding: 11px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: all 0.2s var(--ease-out);
+}
+.session-col .new-btn:hover { background: var(--color-primary-soft); }
+.session-list { list-style: none; padding: 0 8px 12px; overflow-y: auto; flex: 1; }
+.session-list li {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+  border: 1px solid transparent;
+}
+.session-list li:hover { background: var(--color-primary-tint); }
+.session-list li.active { background: var(--color-primary-tint); border-color: rgba(200, 146, 74, 0.3); }
+.session-list li .s-title { font-size: 13px; font-weight: 600; color: var(--color-ink); margin-bottom: 4px; }
+.session-list li.active .s-title { color: var(--color-primary); }
+.session-list li .s-time { font-size: 11px; color: var(--color-ink-mute); }
+
+/* 对话面板 */
+.chat-col {
+  flex: 1;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.chat-head {
+  flex: 0 0 56px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--color-line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.chat-head .ch-title { font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--color-primary); }
+.chat-head .ch-meta { font-size: 11px; color: var(--color-ink-mute); display: flex; align-items: center; gap: 6px; }
+.chat-head .ch-meta .live { width: 6px; height: 6px; border-radius: 50%; background: var(--color-sage); }
+
+.chat-body { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+.msg { display: flex; gap: 10px; max-width: 78%; animation: fadeInUp 0.35s var(--ease-out) both; }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg-bubble { padding: 12px 16px; border-radius: var(--radius-lg); font-size: 13.5px; line-height: 1.6; }
+.msg.ai .msg-bubble { background: var(--color-bg-card); border: 1px solid var(--color-line); border-top-left-radius: 4px; color: var(--color-ink); }
+.msg.user .msg-bubble { background: var(--color-primary-tint); border-top-right-radius: 4px; color: var(--color-primary); }
+.msg .avatar-sm {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+.msg.ai .avatar-sm { background: var(--color-primary); color: #fff; font-family: var(--font-display); }
+.msg.user .avatar-sm { background: var(--color-accent); color: #fff; }
+
+/* AI 回复中的候选人推荐卡 */
+.mini-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.mini-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  transition: all 0.2s var(--ease-out);
+}
+.mini-card:hover { border-color: var(--color-accent); transform: translateX(2px); }
+.mini-card .mc-score {
+  font-family: var(--font-display); font-size: 20px; font-weight: 600;
+  width: 42px; text-align: center;
+}
+.mini-card .mc-name { font-weight: 600; font-size: 13px; color: var(--color-ink); }
+.mini-card .mc-meta { font-size: 11px; color: var(--color-ink-mute); }
+
+/* 思考动画 */
+.thinking { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+.thinking .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ink-mute); animation: bounce 1.2s infinite; }
+.thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+
+.chat-input { flex: 0 0 auto; padding: 14px 18px; border-top: 1px solid var(--color-line); display: flex; gap: 10px; }
+.chat-input textarea {
+  flex: 1; resize: none; border: 1px solid var(--color-line); border-radius: var(--radius-md);
+  padding: 10px 14px; font-size: 13px; font-family: inherit; outline: none; max-height: 100px;
+  transition: border-color 0.2s;
+}
+.chat-input textarea:focus { border-color: var(--color-accent); }
+.chat-input .send-btn {
+  align-self: flex-end; padding: 10px 18px; background: var(--color-primary); color: #fff;
+  border-radius: var(--radius-md); font-size: 13px; font-weight: 600; transition: all 0.2s;
+}
+.chat-input .send-btn:hover { background: var(--color-primary-soft); }
+
+/* 推荐候选人栏 */
+.reco-col {
+  flex: 0 0 380px;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reco-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--color-line); }
+.reco-head .eyebrow { margin-bottom: 8px; }
+.reco-head h3 { font-size: 20px; }
+.reco-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* 候选人推荐卡片 */
+.cand-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  transition: all 0.25s var(--ease-out);
+}
+.cand-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: rgba(200, 146, 74, 0.4); }
+.cand-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.cand-name { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--color-primary); }
+.cand-score { font-family: var(--font-display); font-size: 30px; font-weight: 600; line-height: 1; }
+.cand-stars { display: flex; gap: 2px; margin-bottom: 14px; }
+.cand-stars .star { font-size: 13px; color: var(--color-line); }
+.cand-stars .star.on { color: var(--color-accent); }
+
+.dims { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.dim { display: flex; align-items: center; gap: 10px; }
+.dim .dim-label { font-size: 11px; color: var(--color-ink-mute); width: 44px; flex-shrink: 0; }
+.dim .dim-bar { flex: 1; height: 5px; background: var(--color-line); border-radius: 3px; overflow: hidden; }
+.dim .dim-fill { height: 100%; border-radius: 3px; transition: width 0.6s var(--ease-out); }
+.dim .dim-val { font-size: 11px; font-weight: 600; color: var(--color-ink-soft); width: 24px; text-align: right; }
+
+.cand-meta { font-size: 12px; color: var(--color-ink-soft); margin-bottom: 10px; }
+.cand-skills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.cand-skills .skill-tag { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); background: var(--color-primary-tint); color: var(--color-primary); }
+.cand-skills .more { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-sm); background: rgba(200,146,74,0.14); color: var(--color-accent-deep); }
+.cand-reason {
+  font-family: var(--font-display); font-style: italic; font-size: 12.5px; color: var(--color-ink-soft);
+  line-height: 1.55; padding-left: 14px; position: relative; border-left: 2px solid var(--color-accent-soft);
+}
+.cand-reason::before { content: '“'; position: absolute; left: 2px; top: -4px; font-size: 20px; color: var(--color-accent); font-family: var(--font-display); }
+
+/* ============================================================
+   七、简历库视图
+   ============================================================ */
+.page-head { margin-bottom: 22px; }
+.page-head .eyebrow { margin-bottom: 10px; }
+.page-head h1 { font-size: 34px; margin-bottom: 8px; }
+.page-head .sub { font-size: 13px; color: var(--color-ink-soft); }
+
+.toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--color-bg-card);
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.filters .input, .filters .select { width: auto; min-width: 130px; padding: 9px 12px; }
+.filters .input { min-width: 200px; }
+.toolbar-right { display: flex; align-items: center; gap: 14px; }
+.count-text { font-size: 13px; color: var(--color-ink-mute); }
+.count-text strong { color: var(--color-primary); font-family: var(--font-display); font-size: 15px; }
+
+.resume-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.resume-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+  transition: all 0.25s var(--ease-out);
+  position: relative;
+  display: flex; flex-direction: column;
+}
+.resume-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+.rc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.rc-name { font-family: var(--font-display); font-size: 18px; font-weight: 500; color: var(--color-primary); }
+.rc-gender { font-size: 12px; color: var(--color-ink-mute); margin-top: 2px; }
+.rc-star { font-size: 18px; color: var(--color-line); cursor: pointer; transition: all 0.2s; line-height: 1; }
+.rc-star.on { color: var(--color-coral); }
+.rc-meta { font-size: 12px; color: var(--color-ink-soft); margin: 6px 0 12px; }
+.rc-skills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
+.rc-skills .skill-tag { font-size: 11px; padding: 3px 8px; border-radius: var(--radius-sm); background: var(--color-primary-tint); color: var(--color-primary); }
+.rc-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--color-line); display: flex; align-items: center; justify-content: space-between; }
+.rc-foot .tag { font-size: 11px; }
+.rc-foot .time { font-size: 11px; color: var(--color-ink-mute); }
+
+/* ============================================================
+   八、JD 匹配视图
+   ============================================================ */
+.jd-wrap { display: flex; gap: 18px; }
+.jd-left, .jd-right { flex: 1; background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 20px; display: flex; flex-direction: column; }
+.jd-left h3, .jd-right h3 { font-size: 16px; margin-bottom: 14px; }
+.jd-left textarea { flex: 1; min-height: 320px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+.jd-left .btn { margin-top: 14px; align-self: flex-start; }
+
+.match-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+  transition: all 0.25s var(--ease-out);
+}
+.match-card:hover { border-color: var(--color-accent); transform: translateX(3px); box-shadow: var(--shadow-sm); }
+.match-pct {
+  font-family: var(--font-display); font-size: 26px; font-weight: 600;
+  width: 72px; text-align: center; flex-shrink: 0;
+}
+.match-info .mi-name { font-weight: 600; font-size: 14px; color: var(--color-ink); margin-bottom: 3px; }
+.match-info .mi-reason { font-size: 12px; color: var(--color-ink-soft); line-height: 1.5; }
+
+.jd-loading { text-align: center; padding: 40px 0; color: var(--color-ink-mute); font-size: 13px; }
+.jd-loading .thinking { justify-content: center; }
+
+/* ============================================================
+   九、邮件中心视图
+   ============================================================ */
+.tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--color-line); }
+.tab {
+  padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--color-ink-mute);
+  border-bottom: 2px solid transparent; transition: all 0.2s; margin-bottom: -1px;
+}
+.tab:hover { color: var(--color-primary); }
+.tab.active { color: var(--color-primary); border-bottom-color: var(--color-accent); }
+
+.email-panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 22px; max-width: 760px; }
+.email-form { display: flex; flex-direction: column; gap: 16px; }
+.form-row { display: flex; gap: 14px; }
+.form-row .field-group { flex: 1; }
+.field-group label { display: block; font-size: 12px; font-weight: 600; color: var(--color-ink-soft); margin-bottom: 6px; }
+.var-box { background: var(--color-bg); border: 1px dashed var(--color-line); border-radius: var(--radius-md); padding: 14px; }
+.var-box .var-title { font-size: 12px; font-weight: 600; color: var(--color-accent-deep); margin-bottom: 10px; letter-spacing: 0.04em; }
+.var-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+.tpl-list { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.tpl-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--color-bg-card); border: 1px solid var(--color-line); border-radius: var(--radius-md);
+  padding: 14px 16px; transition: all 0.2s var(--ease-out);
+}
+.tpl-item:hover { border-color: var(--color-accent); box-shadow: var(--shadow-sm); }
+.tpl-info .tpl-name { font-weight: 600; font-size: 14px; color: var(--color-ink); margin-bottom: 3px; }
+.tpl-info .tpl-desc { font-size: 12px; color: var(--color-ink-mute); }
+.tpl-right { display: flex; align-items: center; gap: 8px; }
+
+/* ============================================================
+   十、数据看板视图
+   ============================================================ */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+.stat-card {
+  background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  padding: 18px 20px; position: relative; overflow: hidden;
+}
+.stat-card .stat-label { font-size: 12px; color: var(--color-ink-mute); margin-bottom: 8px; letter-spacing: 0.04em; }
+.stat-card .stat-val { font-family: var(--font-display); font-size: 34px; font-weight: 500; color: var(--color-primary); line-height: 1; }
+.stat-card .stat-trend { font-size: 11px; color: var(--color-sage); margin-top: 8px; }
+.stat-card .stat-icon { position: absolute; right: 16px; top: 16px; font-size: 20px; opacity: 0.25; }
+
+.chart-row { display: grid; gap: 16px; margin-bottom: 16px; }
+.chart-row.r1 { grid-template-columns: repeat(3, 1fr); }
+.chart-row.r2 { grid-template-columns: 10fr 14fr; }
+.chart-box { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 18px; }
+.chart-box .cb-title { font-family: var(--font-display); font-size: 15px; font-weight: 500; color: var(--color-primary); margin-bottom: 14px; }
+.chart-box canvas { max-height: 260px; }
+
+/* ============================================================
+   十一、动画 & 响应式
+   ============================================================ */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-6px); opacity: 1; } }
+
+@media (max-width: 1200px) {
+  .workbench { flex-direction: column; height: auto; }
+  .session-col, .reco-col { flex: none; }
+  .reco-col { max-height: 600px; }
+  .resume-grid { grid-template-columns: repeat(2, 1fr); }
+  .chart-row.r1 { grid-template-columns: 1fr; }
+  .chart-row.r2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .login-left { display: none; }
+  .login-right { flex: 1; padding: 40px 28px; }
+  .login-title { font-size: 44px; }
+  .sidebar { flex: 0 0 64px; }
+  .sidebar-logo .logo-text, .sidebar-menu li span:not(.icon), .sidebar-foot { display: none; }
+  .sidebar-menu li { justify-content: center; }
+  .resume-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .jd-wrap { flex-direction: column; }
+  .form-row { flex-direction: column; }
+  .var-grid { grid-template-columns: 1fr; }
+  .content { padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     登录页
+     ============================================================ -->
+<div id="loginPage">
+  <div class="login-left">
+    <span class="login-eyebrow">TALENTSENSE · 2026</span>
+    <h1 class="login-title">智能招聘的<br><em>AI系统</em></h1>
+    <p class="login-sub">以语义理解重构人才发现。TalentSense HR 把简历库、对话式推荐与 JD 匹配编织为一张知识网络,让每一次招聘都像编辑一篇深度报道——精确、有温度、可被复用。</p>
+    <ul class="login-features">
+      <li>语义检索 · 超越关键词,理解意图与上下文</li>
+      <li>智能匹配 · 多维度评分,候选人排序一目了然</li>
+      <li>对话式推荐 · 自然语言提问,AI 即时给出人选</li>
+    </ul>
+    <div class="login-decor">
+      <div class="ring"></div>
+      <div class="dot"></div>
+    </div>
+  </div>
+  <div class="login-right">
+    <span class="eyebrow">SIGN IN</span>
+    <h2>欢迎回来</h2>
+    <p class="sub">登录以继续您的招聘工作台</p>
+    <form class="login-form" id="loginForm" onsubmit="return false;">
+      <div class="field-group">
+        <label>邮箱地址</label>
+        <input class="input" type="email" id="loginEmail" placeholder="your-email@example.com" autocomplete="off">
+      </div>
+      <div class="field-group">
+        <label>密码</label>
+        <input class="input" type="password" id="loginPwd" placeholder="your-password">
+      </div>
+      <button class="btn btn-primary" type="submit" id="loginBtn">登录 →</button>
+    </form>
+    <div class="login-footer">© 2026 TalentSense HR · Trae AI 创造力大赛</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     主应用
+     ============================================================ -->
+<div id="app">
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-dot"></span>
+      <span class="logo-text">TalentSense HR</span>
+    </div>
+    <ul class="sidebar-menu" id="menu">
+      <li class="active" data-view="workbench"><span class="icon">💬</span><span>工作台</span></li>
+      <li data-view="resume"><span class="icon">📄</span><span>简历库</span></li>
+      <li data-view="jdmatch"><span class="icon">🔗</span><span>JD匹配</span></li>
+      <li data-view="email"><span class="icon">📧</span><span>邮件中心</span></li>
+      <li data-view="dashboard"><span class="icon">📊</span><span>数据看板</span></li>
+    </ul>
+    <div class="sidebar-foot">v2.6 · Demo Build</div>
+  </aside>
+
+  <!-- 主体 -->
+  <div class="main-wrap">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="collapse-btn" title="折叠侧边栏">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <span class="topbar-title" id="pageTitle">工作台</span>
+      </div>
+      <div class="topbar-right">
+        <div style="text-align:right" class="user-meta">
+          <div class="name">Admin</div>
+          <div class="role">管理员</div>
+        </div>
+        <div class="avatar">A</div>
+      </div>
+    </header>
+
+    <main class="content" id="content">
+
+      <!-- ===== 工作台 ===== -->
+      <section class="view active" id="view-workbench">
+        <div class="workbench">
+          <!-- 会话列表 -->
+          <div class="session-col">
+            <button class="new-btn">+ 新建会话</button>
+            <ul class="session-list" id="sessionList">
+              <li class="active"><div class="s-title">找NLP工程师</div><div class="s-time">2分钟前</div></li>
+              <li><div class="s-title">前端开发候选人</div><div class="s-time">1小时前</div></li>
+              <li><div class="s-title">对比两位候选人</div><div class="s-time">昨天</div></li>
+            </ul>
+          </div>
+
+          <!-- 对话面板 -->
+          <div class="chat-col">
+            <div class="chat-head">
+              <span class="ch-title">找NLP工程师</span>
+              <span class="ch-meta"><span class="live"></span>AI 在线</span>
+            </div>
+            <div class="chat-body" id="chatBody">
+              <div class="msg user">
+                <div class="avatar-sm">A</div>
+                <div class="msg-bubble">帮我找有 NLP 经验的工程师,本科以上学历</div>
+              </div>
+              <div class="msg ai">
+                <div class="avatar-sm">T</div>
+                <div class="msg-bubble">
+                  已为您找到 3 位匹配的 NLP 工程师候选人,他们均具备本科及以上学历,且在自然语言处理方向有扎实的项目落地经验。右侧按匹配度排序,您可点击卡片查看详情。
+                  <div class="mini-cards">
+                    <div class="mini-card"><div class="mc-score" style="color:var(--color-sage)">88</div><div><div class="mc-name">李志</div><div class="mc-meta">5年 · 本科 · NLP / BERT / PyTorch</div></div></div>
+                    <div class="mini-card"><div class="mc-score" style="color:var(--color-sage)">82</div><div><div class="mc-name">温蕊</div><div class="mc-meta">4年 · 硕士 · NLP / Transformer</div></div></div>
+                    <div class="mini-card"><div class="mc-score" style="color:var(--color-accent)">76</div><div><div class="mc-name">张伟明</div><div class="mc-meta">3年 · 本科 · NLP / FastText</div></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="chat-input">
+              <textarea id="chatInput" placeholder="输入您的需求,例如:找有 3 年经验的前端工程师…" rows="1"></textarea>
+              <button class="send-btn" id="sendBtn">发送</button>
+            </div>
+          </div>
+
+          <!-- 推荐候选人 -->
+          <div class="reco-col">
+            <div class="reco-head">
+              <span class="eyebrow">RECOMMENDATIONS</span>
+              <h3 class="decor-title">推荐候选人</h3>
+            </div>
+            <div class="reco-list" id="recoList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 简历库 ===== -->
+      <section class="view" id="view-resume">
+        <div class="page-head">
+          <span class="eyebrow">RESUME LIBRARY</span>
+          <h1 class="decor-title">简历库</h1>
+          <p class="sub">管理所有候选人简历,支持上传、检索、标签与收藏</p>
+        </div>
+        <div class="toolbar">
+          <div class="filters">
+            <input class="input" placeholder="搜索姓名 / 技能 / 职位…">
+            <select class="select"><option>全部学历</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select>
+            <select class="select"><option>工作年限</option><option>1-3年</option><option>3-5年</option><option>5-10年</option><option>10年以上</option></select>
+            <select class="select"><option>全部状态</option><option>已解析</option><option>解析中</option><option>待解析</option></select>
+          </div>
+          <div class="toolbar-right">
+            <span class="count-text">共 <strong>128</strong> 份简历</span>
+            <button class="btn btn-outline">导出选中</button>
+            <button class="btn btn-primary">+ 上传简历</button>
+          </div>
+        </div>
+        <div class="resume-grid" id="resumeGrid"></div>
+      </section>
+
+      <!-- ===== JD 匹配 ===== -->
+      <section class="view" id="view-jdmatch">
+        <div class="page-head">
+          <span class="eyebrow">JD MATCH</span>
+          <h1 class="decor-title">职位匹配</h1>
+          <p class="sub">粘贴职位描述,AI 将基于语义为每位候选人计算匹配度并排序</p>
+        </div>
+        <div class="jd-wrap">
+          <div class="jd-left">
+            <h3>职位描述 (JD)</h3>
+            <textarea class="textarea" id="jdInput">岗位:NLP算法工程师
+要求:
+1. 计算机相关专业本科及以上学历
+2. 熟悉NLP基础理论,了解BERT/Transformer等模型
+3. 精通Python,有PyTorch/TensorFlow经验
+4. 有文本分类/NER/语义理解项目经验优先
+5. 3年以上工作经验</textarea>
+            <button class="btn btn-primary" id="matchBtn">开始匹配</button>
+          </div>
+          <div class="jd-right">
+            <h3>匹配结果</h3>
+            <div id="matchResult">
+              <div class="jd-loading" style="color:var(--color-ink-mute)">点击「开始匹配」查看候选人匹配度</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 邮件中心 ===== -->
+      <section class="view" id="view-email">
+        <div class="page-head">
+          <span class="eyebrow">EMAIL CENTER</span>
+          <h1 class="decor-title">邮件中心</h1>
+          <p class="sub">基于模板向候选人发送面试邀请、Offer 通知等邮件,支持变量自动填充</p>
+        </div>
+        <div class="tabs" id="emailTabs">
+          <button class="tab active" data-tab="send">发送邮件</button>
+          <button class="tab" data-tab="tpl">模板管理</button>
+        </div>
+
+        <div class="email-panel" id="tab-send">
+          <form class="email-form" onsubmit="return false;">
+            <div class="form-row">
+              <div class="field-group">
+                <label>收件人邮箱</label>
+                <input class="input" id="emailTo" value="lizhipeng@example.com">
+              </div>
+              <div class="field-group">
+                <label>邮件模板</label>
+                <select class="select" id="tplSelect">
+                  <option value="">— 选择模板 —</option>
+                  <option value="interview">面试邀请</option>
+                  <option value="offer">Offer通知</option>
+                  <option value="reject">拒绝通知</option>
+                  <option value="progress">进度通知</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-group">
+              <label>邮件主题</label>
+              <input class="input" id="emailSubject">
+            </div>
+            <div class="field-group">
+              <label>邮件正文</label>
+              <textarea class="textarea" id="emailBody" style="min-height:160px"></textarea>
+            </div>
+            <div class="field-group">
+              <div class="var-box">
+                <div class="var-title">变量填写</div>
+                <div class="var-grid" id="varGrid">
+                  <div><input class="input" placeholder="候选人姓名" value="李志"></div>
+                  <div><input class="input" placeholder="职位名称" value="NLP算法工程师"></div>
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="sendEmailBtn">发送邮件</button>
+          </form>
+        </div>
+
+        <div class="tpl-list" id="tab-tpl" style="display:none"></div>
+      </section>
+
+      <!-- ===== 数据看板 ===== -->
+      <section class="view" id="view-dashboard">
+        <div class="page-head">
+          <span class="eyebrow">ANALYTICS</span>
+          <h1 class="decor-title">数据看板</h1>
+          <p class="sub">实时洞察简历库构成、招聘漏斗与入库趋势</p>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-icon">📄</div><div class="stat-label">简历总数</div><div class="stat-val">128</div><div class="stat-trend">↑ 本周新增 14</div></div>
+          <div class="stat-card"><div class="stat-icon">★</div><div class="stat-label">收藏数</div><div class="stat-val">24</div><div class="stat-trend">↑ 本周新增 3</div></div>
+          <div class="stat-card"><div class="stat-icon">⏳</div><div class="stat-label">解析中</div><div class="stat-val">2</div><div class="stat-trend" style="color:var(--color-accent-deep)">处理中</div></div>
+          <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-label">会话数</div><div class="stat-val">36</div><div class="stat-trend">↑ 本周新增 5</div></div>
+        </div>
+        <div class="chart-row r1">
+          <div class="chart-box"><div class="cb-title">Top 技能分布</div><canvas id="chartSkill"></canvas></div>
+          <div class="chart-box"><div class="cb-title">学历分布</div><canvas id="chartEdu"></canvas></div>
+          <div class="chart-box"><div class="cb-title">薪资分布</div><canvas id="chartSal"></canvas></div>
+        </div>
+        <div class="chart-row r2">
+          <div class="chart-box"><div class="cb-title">招聘漏斗</div><canvas id="chartFunnel"></canvas></div>
+          <div class="chart-box"><div class="cb-title">简历入库趋势 · 近 30 天</div><canvas id="chartTrend"></canvas></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Mock 数据
+   ============================================================ */
+
+// 推荐候选人(工作台右栏 + 对话)
+const RECO_CANDIDATES = [
+  { name: '李志', score: 88, dims: { skill: 92, exp: 85, edu: 80, sal: 75 }, years: '5年经验', edu: '本科', salary: '25-35K', skills: ['NLP','BERT','Python','PyTorch'], more: 3, reason: '5年NLP经验,主导过多个语义理解项目,技术栈高度匹配' },
+  { name: '温蕊', score: 82, dims: { skill: 85, exp: 78, edu: 90, sal: 70 }, years: '4年经验', edu: '硕士', salary: '20-30K', skills: ['NLP','Transformer','Python','Jieba'], more: 0, reason: '硕士学历,研究方向为自然语言处理,有学术论文发表' },
+  { name: '张伟明', score: 76, dims: { skill: 80, exp: 72, edu: 75, sal: 68 }, years: '3年经验', edu: '本科', salary: '18-25K', skills: ['NLP','FastText','Python'], more: 0, reason: '3年NLP开发经验,熟悉文本分类和命名实体识别' }
+];
+
+// 简历库
+const RESUMES = [
+  { name: '李志', gender: '男/28', years: '5年', edu: '本科', salary: '25-35K', skills: ['NLP','BERT','Python','PyTorch'], tag: '优先推荐', time: '今天', fav: true },
+  { name: '温蕊', gender: '女/26', years: '4年', edu: '硕士', salary: '20-30K', skills: ['NLP','Transformer','Python'], tag: '高学历', time: '今天', fav: false },
+  { name: '张伟明', gender: '男/30', years: '3年', edu: '本科', salary: '18-25K', skills: ['NLP','FastText','Python'], tag: '', time: '昨天', fav: false },
+  { name: '陈思雨', gender: '女/25', years: '2年', edu: '本科', salary: '15-20K', skills: ['前端','Vue','React','TypeScript'], tag: '前端', time: '昨天', fav: false },
+  { name: '王浩然', gender: '男/32', years: '8年', edu: '硕士', salary: '35-50K', skills: ['架构','Java','Spring','Redis'], tag: '资深', time: '2天前', fav: true },
+  { name: '刘梦琪', gender: '女/27', years: '4年', edu: '本科', salary: '20-28K', skills: ['前端','Vue','JavaScript','CSS'], tag: '', time: '3天前', fav: false },
+  { name: '赵子轩', gender: '男/29', years: '5年', edu: '硕士', salary: '30-40K', skills: ['后端','Go','Kubernetes','Docker'], tag: '后端', time: '5天前', fav: false },
+  { name: '孙小美', gender: '女/24', years: '1年', edu: '本科', salary: '12-18K', skills: ['测试','Selenium','Python'], tag: '', time: '1周前', fav: false },
+  { name: '周杰伦', gender: '男/31', years: '6年', edu: '本科', salary: '28-38K', skills: ['全栈','Node.js','React','MongoDB'], tag: '全栈', time: '1周前', fav: false }
+];
+
+// JD 匹配结果
+const MATCH_RESULTS = [
+  { name: '李志', pct: 95, reason: '5年NLP经验,熟练 BERT/Transformer,精通 Python 与 PyTorch,具备文本分类与 NER 项目经验', color: 'var(--color-primary)' },
+  { name: '温蕊', pct: 88, reason: '硕士学历研究方向契合,熟悉 Transformer 与 Python,有论文与语义理解经验', color: 'var(--color-sage)' },
+  { name: '张伟明', pct: 82, reason: '3年 NLP 开发经验,熟悉 FastText 与文本分类,本科符合学历要求', color: 'var(--color-accent)' }
+];
+
+// 邮件模板
+const TEMPLATES = {
+  interview: { name: '面试邀请', cat: '面试', builtin: true, subject: '【TalentSense】面试邀请 — {{职位名称}}', body: '{{候选人姓名}} 您好,\n\n感谢您对 {{职位名称}} 岗位的关注。经过初步评估,我们认为您的背景与该岗位高度匹配,诚邀您参加面试。\n\n面试时间:{{面试时间}}\n面试地点:{{面试地点}}\n面试形式:视频面试\n\n如有任何问题,请随时回复本邮件。期待与您交流!\n\nTalentSense HR 团队', vars: ['候选人姓名','职位名称','面试时间','面试地点'] },
+  offer: { name: 'Offer通知', cat: '录用', builtin: true, subject: '【TalentSense】录用通知 — {{职位名称}}', body: '{{候选人姓名}} 您好,\n\n非常高兴地通知您,经过综合评估,您已通过 {{职位名称}} 岗位的全部面试,我们正式向您发出录用邀请。\n\n入职日期:{{入职日期}}\n薪资待遇:{{薪资}}\n\n请在 3 个工作日内回复确认。欢迎加入我们!\n\nTalentSense HR 团队', vars: ['候选人姓名','职位名称','入职日期','薪资'] },
+  reject: { name: '拒绝通知', cat: '反馈', builtin: true, subject: '【TalentSense】应聘结果通知', body: '{{候选人姓名}} 您好,\n\n感谢您应聘 {{职位名称}} 岗位。经过认真评估,遗憾的是本次您的背景与岗位要求尚不完全匹配。\n\n我们已将您的简历纳入人才库,如有合适机会将主动与您联系。再次感谢您的关注与支持。\n\nTalentSense HR 团队', vars: ['候选人姓名','职位名称'] },
+  progress: { name: '进度通知', cat: '进度', builtin: true, subject: '【TalentSense】招聘进度更新', body: '{{候选人姓名}} 您好,\n\n您应聘的 {{职位名称}} 岗位目前进度更新如下:\n当前阶段:{{当前阶段}}\n\n如有疑问请随时联系我们。\n\nTalentSense HR 团队', vars: ['候选人姓名','职位名称','当前阶段'] },
+  custom: { name: '自定义模板', cat: '自定义', builtin: false, subject: '', body: '', vars: ['候选人姓名'] }
+};
+
+/* ============================================================
+   工具函数
+   ============================================================ */
+
+/** 根据评分返回颜色 */
+function scoreColor(s) {
+  if (s >= 90) return 'var(--color-primary)';
+  if (s >= 80) return 'var(--color-sage)';
+  if (s >= 70) return 'var(--color-accent)';
+  return 'var(--color-coral)';
+}
+
+/** 生成五角星评分(score/20,亮的用琥珀金) */
+function renderStars(score) {
+  const lit = Math.round(score / 20);
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    html += `<span class="star ${i < lit ? 'on' : ''}">★</span>`;
+  }
+  return html;
+}
+
+/** HTML 转义 */
+function esc(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* ============================================================
+   登录逻辑
+   ============================================================ */
+document.getElementById('loginBtn').addEventListener('click', function () {
+  const loginPage = document.getElementById('loginPage');
+  const app = document.getElementById('app');
+  loginPage.classList.add('hide');
+  setTimeout(() => {
+    loginPage.style.display = 'none';
+    app.classList.add('show');
+    // 首次进入时渲染工作台推荐列表
+    renderRecoList();
+  }, 480);
+});
+
+/* ============================================================
+   视图切换
+   ============================================================ */
+const VIEW_TITLES = {
+  workbench: '工作台', resume: '简历库', jdmatch: 'JD匹配', email: '邮件中心', dashboard: '数据看板'
+};
+let dashboardInited = false;
+
+document.getElementById('menu').addEventListener('click', function (e) {
+  const li = e.target.closest('li');
+  if (!li) return;
+  const view = li.dataset.view;
+  // 菜单高亮
+  this.querySelectorAll('li').forEach(x => x.classList.remove('active'));
+  li.classList.add('active');
+  // 切换视图
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+  // 顶栏标题
+  document.getElementById('pageTitle').textContent = VIEW_TITLES[view];
+  // 进入数据看板时初始化图表
+  if (view === 'dashboard' && !dashboardInited) {
+    initCharts();
+    dashboardInited = true;
+  }
+});
+
+/* ============================================================
+   工作台:渲染推荐候选人
+   ============================================================ */
+function renderRecoList() {
+  const list = document.getElementById('recoList');
+  const DIM_META = {
+    skill: { label: '技能', color: 'var(--color-skill)' },
+    exp: { label: '经验', color: 'var(--color-exp)' },
+    edu: { label: '学历', color: 'var(--color-edu)' },
+    sal: { label: '薪资', color: 'var(--color-sal)' }
+  };
+  list.innerHTML = RECO_CANDIDATES.map(c => {
+    const dimsHtml = Object.keys(DIM_META).map(k => {
+      const m = DIM_META[k];
+      return `<div class="dim"><span class="dim-label">${m.label}</span><div class="dim-bar"><div class="dim-fill" style="width:${c.dims[k]}%;background:${m.color}"></div></div><span class="dim-val">${c.dims[k]}</span></div>`;
+    }).join('');
+    const skillsHtml = c.skills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join('') + (c.more ? `<span class="more">+${c.more}</span>` : '');
+    return `
+      <div class="cand-card">
+        <div class="cand-top">
+          <span class="cand-name">${esc(c.name)}</span>
+          <span class="cand-score" style="color:${scoreColor(c.score)}">${c.score}</span>
+        </div>
+        <div class="cand-stars">${renderStars(c.score)}</div>
+        <div class="dims">${dimsHtml}</div>
+        <div class="cand-meta">${c.years} · ${c.edu} · ${c.salary}</div>
+        <div class="cand-skills">${skillsHtml}</div>
+        <div class="cand-reason">${esc(c.reason)}</div>
+      </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   工作台:对话发送 & AI 回复
+   ============================================================ */
+const chatBody = document.getElementById('chatBody');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+
+function appendMsg(role, html) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const avatar = role === 'ai' ? 'T' : 'A';
+  div.innerHTML = `<div class="avatar-sm">${avatar}</div><div class="msg-bubble">${html}</div>`;
+  chatBody.appendChild(div);
+  chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  appendMsg('user', esc(text));
+  chatInput.value = '';
+  // 思考动画
+  const think = document.createElement('div');
+  think.className = 'msg ai';
+  think.id = 'thinking-msg';
+  think.innerHTML = `<div class="avatar-sm">T</div><div class="msg-bubble"><div class="thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span> AI 正在思考…</div></div>`;
+  chatBody.appendChild(think);
+  chatBody.scrollTop = chatBody.scrollHeight;
+  // 2 秒后回复
+  setTimeout(() => {
+    const t = document.getElementById('thinking-msg');
+    if (t) t.remove();
+    appendMsg('ai', buildAIReply(text));
+  }, 2000);
+}
+
+/** 根据关键词生成 AI 回复 */
+function buildAIReply(text) {
+  const hasNLP = /nlp|自然语言|bert|transformer/i.test(text);
+  const hasFront = /前端|vue|react|frontend/i.test(text);
+  const hasCompare = /对比|比较|versus|vs/i.test(text);
+  if (hasNLP) {
+    return `已为您找到 3 位匹配的 NLP 工程师候选人,他们均具备本科及以上学历,且在自然语言处理方向有扎实的项目落地经验。右侧按匹配度排序,您可点击卡片查看详情。
+      <div class="mini-cards">
+        <div class="mini-card"><div class="mc-score" style="color:var(--color-sage)">88</div><div><div class="mc-name">李志</div><div class="mc-meta">5年 · 本科 · NLP / BERT / PyTorch</div></div></div>
+        <div class="mini-card"><div class="mc-score" style="color:var(--color-sage)">82</div><div><div class="mc-name">温蕊</div><div class="mc-meta">4年 · 硕士 · NLP / Transformer</div></div></div>
+        <div class="mini-card"><div class="mc-score" style="color:var(--color-accent)">76</div><div><div class="mc-name">张伟明</div><div class="mc-meta">3年 · 本科 · NLP / FastText</div></div></div>
+      </div>`;
+  }
+  if (hasFront) {
+    return `为您筛选出 2 位前端开发候选人:陈思雨(2年,Vue/React/TS)与刘梦琪(4年,Vue/JS/CSS)。您希望按匹配度还是薪资排序?也可直接在简历库中查看完整简历。`;
+  }
+  if (hasCompare) {
+    return `已为您调取对比视图:李志(88)与温蕊(82)在技能维度接近,但温蕊学历评分更高(硕士),而李志经验更丰富。建议优先安排李志面试,温蕊作为备选。`;
+  }
+  return `已收到您的需求。我将在简历库中进行语义检索与多维度匹配,稍后为您呈现最合适的候选人。您也可以尝试更具体的描述,例如「5年以上经验的后端工程师,熟悉 Go」。`;
+}
+
+sendBtn.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
+// 会话列表切换
+document.getElementById('sessionList').addEventListener('click', function (e) {
+  const li = e.target.closest('li');
+  if (!li) return;
+  this.querySelectorAll('li').forEach(x => x.classList.remove('active'));
+  li.classList.add('active');
+});
+document.querySelector('.session-col .new-btn').addEventListener('click', function () {
+  const ul = document.getElementById('sessionList');
+  const li = document.createElement('li');
+  li.innerHTML = '<div class="s-title">新会话</div><div class="s-time">刚刚</div>';
+  ul.querySelectorAll('li').forEach(x => x.classList.remove('active'));
+  li.classList.add('active');
+  ul.insertBefore(li, ul.firstChild);
+});
+
+/* ============================================================
+   简历库:渲染卡片 + 收藏切换
+   ============================================================ */
+function renderResumes() {
+  const grid = document.getElementById('resumeGrid');
+  grid.innerHTML = RESUMES.map((r, i) => {
+    const skills = r.skills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join('');
+    const tag = r.tag ? `<span class="tag tag-accent">${esc(r.tag)}</span>` : '';
+    return `
+      <div class="resume-card" data-idx="${i}">
+        <div class="rc-top">
+          <div>
+            <div class="rc-name">${esc(r.name)}</div>
+            <div class="rc-gender">${esc(r.gender)}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <span class="rc-star ${r.fav ? 'on' : ''}" data-idx="${i}">${r.fav ? '★' : '☆'}</span>
+            <span class="tag tag-sage">已解析</span>
+          </div>
+        </div>
+        <div class="rc-meta">${r.years} · ${r.edu} · ${r.salary}</div>
+        <div class="rc-skills">${skills}</div>
+        <div class="rc-foot">${tag}<span class="time">${esc(r.time)}</span></div>
+      </div>`;
+  }).join('');
+}
+renderResumes();
+
+document.getElementById('resumeGrid').addEventListener('click', function (e) {
+  const star = e.target.closest('.rc-star');
+  if (!star) return;
+  const idx = parseInt(star.dataset.idx, 10);
+  RESUMES[idx].fav = !RESUMES[idx].fav;
+  star.classList.toggle('on', RESUMES[idx].fav);
+  star.textContent = RESUMES[idx].fav ? '★' : '☆';
+});
+
+/* ============================================================
+   JD 匹配
+   ============================================================ */
+document.getElementById('matchBtn').addEventListener('click', function () {
+  const box = document.getElementById('matchResult');
+  box.innerHTML = '<div class="jd-loading"><div class="thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span> AI 语义匹配中…</div></div>';
+  setTimeout(() => {
+    box.innerHTML = MATCH_RESULTS.map(m => `
+      <div class="match-card">
+        <div class="match-pct" style="color:${m.color}">${m.pct}%</div>
+        <div class="match-info">
+          <div class="mi-name">${esc(m.name)}</div>
+          <div class="mi-reason">${esc(m.reason)}</div>
+        </div>
+      </div>`).join('');
+  }, 1500);
+});
+
+/* ============================================================
+   邮件中心:Tab 切换 / 模板填充 / 模板列表
+   ============================================================ */
+document.getElementById('emailTabs').addEventListener('click', function (e) {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  this.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  tab.classList.add('active');
+  const isSend = tab.dataset.tab === 'send';
+  document.getElementById('tab-send').style.display = isSend ? '' : 'none';
+  document.getElementById('tab-tpl').style.display = isSend ? 'none' : '';
+});
+
+document.getElementById('tplSelect').addEventListener('change', function () {
+  const key = this.value;
+  if (!key) return;
+  const tpl = TEMPLATES[key];
+  document.getElementById('emailSubject').value = tpl.subject;
+  document.getElementById('emailBody').value = tpl.body;
+  // 渲染变量输入框
+  const vg = document.getElementById('varGrid');
+  vg.innerHTML = tpl.vars.map((v, i) => `<div><input class="input" placeholder="${v}" value="${i === 0 ? '李志' : (i === 1 ? 'NLP算法工程师' : '')}"></div>`).join('');
+});
+
+document.getElementById('sendEmailBtn').addEventListener('click', function () {
+  const to = document.getElementById('emailTo').value.trim();
+  if (!to) { alert('请填写收件人邮箱'); return; }
+  const btn = this;
+  const orig = btn.textContent;
+  btn.textContent = '发送中…';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = '✓ 已发送';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1600);
+  }, 900);
+});
+
+// 模板管理列表
+function renderTplList() {
+  const list = document.getElementById('tab-tpl');
+  list.innerHTML = Object.values(TEMPLATES).map(t => `
+    <div class="tpl-item">
+      <div class="tpl-info">
+        <div class="tpl-name">${esc(t.name)}</div>
+        <div class="tpl-desc">${t.vars.length} 个变量 · ${t.vars.join(' / ')}</div>
+      </div>
+      <div class="tpl-right">
+        <span class="tag tag-accent">${esc(t.cat)}</span>
+        ${t.builtin ? '<span class="tag tag-sage">内置</span>' : '<span class="tag">自定义</span>'}
+      </div>
+    </div>`).join('');
+}
+renderTplList();
+
+/* ============================================================
+   数据看板:Chart.js 图表
+   ============================================================ */
+function initCharts() {
+  const C = {
+    primary: '#1a3a32', primarySoft: '#2d5247', accent: '#c8924a', accentSoft: '#e0b876',
+    coral: '#d97757', sage: '#87a878', line: '#e3ddd2', inkSoft: '#5c5751'
+  };
+  Chart.defaults.font.family = "'Manrope','Noto Sans SC',sans-serif";
+  Chart.defaults.color = C.inkSoft;
+  Chart.defaults.font.size = 12;
+
+  // 1. Top 技能(横向柱状图)
+  new Chart(document.getElementById('chartSkill'), {
+    type: 'bar',
+    data: {
+      labels: ['NLP', 'Python', '前端/Vue', 'Java/架构', 'Go', '测试'],
+      datasets: [{ label: '人数', data: [18, 42, 26, 22, 14, 9], backgroundColor: [C.primary, C.accent, C.sage, C.primarySoft, C.coral, C.accentSoft], borderRadius: 4, barThickness: 18 }]
+    },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: C.line } }, y: { grid: { display: false } } } }
+  });
+
+  // 2. 学历分布(饼图)
+  new Chart(document.getElementById('chartEdu'), {
+    type: 'doughnut',
+    data: {
+      labels: ['本科', '硕士', '大专', '博士'],
+      datasets: [{ data: [77, 32, 13, 6], backgroundColor: [C.primary, C.accent, C.sage, C.coral], borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 12 } } } }
+  });
+
+  // 3. 薪资分布(柱状图)
+  new Chart(document.getElementById('chartSal'), {
+    type: 'bar',
+    data: {
+      labels: ['10-15K', '15-20K', '20-25K', '25-30K', '30-40K', '40K+'],
+      datasets: [{ label: '人数', data: [14, 28, 34, 26, 18, 8], backgroundColor: C.accent, borderRadius: 4, barThickness: 22 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { grid: { color: C.line }, beginAtZero: true } } }
+  });
+
+  // 4. 招聘漏斗(横向柱状图模拟)
+  new Chart(document.getElementById('chartFunnel'), {
+    type: 'bar',
+    data: {
+      labels: ['简历入库', '筛选通过', '面试', 'Offer', '入职'],
+      datasets: [{ label: '人数', data: [128, 64, 32, 8, 5], backgroundColor: [C.primary, C.primarySoft, C.accent, C.accentSoft, C.sage], borderRadius: 4, barThickness: 22 }]
+    },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: C.line } }, y: { grid: { display: false } } } }
+  });
+
+  // 5. 入库趋势(折线图)
+  const days = Array.from({ length: 30 }, (_, i) => (i + 1) + '日');
+  const trend = [2,3,2,4,3,5,4,6,5,7,6,8,6,9,7,10,8,11,9,12,10,13,11,14,12,15,13,16,14,18];
+  new Chart(document.getElementById('chartTrend'), {
+    type: 'line',
+    data: {
+      labels: days,
+      datasets: [{ label: '入库数', data: trend, borderColor: C.primary, backgroundColor: 'rgba(200,146,74,0.12)', fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } }, y: { grid: { color: C.line }, beginAtZero: true } } }
+  });
+}
+</script>
+</body>
+</html>

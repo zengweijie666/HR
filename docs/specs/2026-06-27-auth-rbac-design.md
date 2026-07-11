@@ -184,7 +184,7 @@ async def _ensure_admin():
 ```bash
 # 管理员初始化
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=your-secure-password-here
 ADMIN_EMAIL=admin@test.com
 ```
 

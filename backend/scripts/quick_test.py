@@ -2,8 +2,10 @@
 文件名: scripts/quick_test.py
 创建时间: 2026-06-28
 功能描述: 快速测试单个搜索查询
+入参: 环境变量 ADMIN_EMAIL / ADMIN_PASSWORD（从 .env 读取），命令行参数为查询语句
 """
 import asyncio
+import os
 import sys
 import json
 from pathlib import Path
@@ -13,14 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import httpx
 
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:8000/api/v1")
 
 
 async def main():
     async with httpx.AsyncClient(timeout=300) as client:
         r = await client.post(f"{BASE_URL}/auth/login", json={
-            "email": "a****@********",
-            "password": "admin123",
+            "email": os.environ.get("ADMIN_EMAIL", "admin@test.com"),
+            "password": os.environ.get("ADMIN_PASSWORD", "change-me-in-env"),
         })
         print(f"登录: {r.status_code}")
         token = r.json()["data"]["access_token"]

@@ -25,6 +25,8 @@
 - [配置说明](#配置说明)
 - [API 接口](#api-接口)
 - [测试](#测试)
+- [常见问题排查（FAQ）](#常见问题排查faq)
+- [安全注意事项](#安全注意事项)
 - [开发规范](#开发规范)
 - [文档](#文档)
 
@@ -483,16 +485,32 @@ HR/
 
 ## 快速开始
 
+本节面向首次部署的新手用户，按顺序操作即可跑起来。推荐使用 **Docker 一键部署**，无需手动安装 MongoDB/Redis/Milvus/MinIO。
+
 ### 环境要求
 
 **Docker 部署（推荐）：**
-- Docker >= 20.10
-- Docker Compose >= 2.0
 
-**本地开发：**
-- **Python >= 3.11**（推荐 3.12）+ **uv** 包管理器
-- **Node.js >= 18** + **npm**
-- **MongoDB 6.0+** / **Redis 6.0+** / **Milvus 2.4+** / **MinIO**
+| 项目 | 要求 | 说明 |
+|------|------|------|
+| Docker | >= 20.10 | [安装指南](https://docs.docker.com/get-docker/) |
+| Docker Compose | >= 2.0 | Docker Desktop 自带；Linux 需单独安装 |
+| 磁盘空间 | >= 15 GB | 镜像约 8GB + 模型约 5GB + 数据 |
+| 内存 | >= 8 GB | Milvus + BGE 模型较吃内存，建议 16GB |
+| 网络 | 可访问公网 | 首次启动需拉取镜像 + 下载模型 |
+
+**本地开发（可选）：**
+
+| 项目 | 要求 |
+|------|------|
+| Python | >= 3.11（推荐 3.12）+ [uv](https://docs.astral.sh/uv/) 包管理器 |
+| Node.js | >= 18 + npm |
+| MongoDB | 6.0+ |
+| Redis | 6.0+ |
+| Milvus | 2.4+ |
+| MinIO | 最新版 |
+
+> 本地开发也可用 Docker 仅启动基础设施：`docker-compose up mongo redis minio minio-init milvus -d`
 
 ### 1. 克隆项目
 
@@ -501,74 +519,181 @@ git clone <repo-url>
 cd HR
 ```
 
-### 2. Docker 一键部署（推荐）
-
-仅需安装 **Docker** 和 **Docker Compose**，无需手动配置 MongoDB/Redis/Milvus/MinIO 等基础设施。
+### 2. 配置环境变量（必填）
 
 ```bash
-# 1. 复制环境配置模板
+# 复制环境配置模板
 cp .env.example .env
+```
 
-# 2. 编辑 .env，必填项：
-#    - LLM_API_KEY：你的通义千问/OpenAI 兼容接口 API Key
-#    - JWT_SECRET：改为随机字符串（生产环境）
-#    - ADMIN_PASSWORD：管理员密码（可选）
+用文本编辑器打开 `.env`，**必须修改以下项**：
 
-# 3. 构建并启动所有服务（首次启动会自动下载模型，需几分钟）
+| 配置项 | 说明 | 示例 |
+|--------|------|------|
+| `LLM_API_KEY` | 通义千问/OpenAI 兼容 API Key（[申请地址](https://dashscope.console.aliyun.com/)） | `sk-xxxxxxxxxxxx` |
+| `JWT_SECRET` | JWT 签名密钥（生成方式见 .env 注释） | 随机字符串 |
+| `MONGO_ROOT_PASSWORD` | MongoDB root 密码 | 强密码 |
+| `REDIS_PASSWORD` | Redis 密码 | 强密码 |
+| `MINIO_ROOT_PASSWORD` | MinIO root 密码（Milvus 共用） | 强密码 |
+| `ADMIN_PASSWORD` | 管理员登录密码 | 强密码 |
+| `ADMIN_EMAIL` | 管理员登录邮箱（必填） | `your-email@example.com` |
+
+> 完整配置项说明见 [配置说明](#配置说明) 章节。`.env` 文件已被 `.gitignore` 忽略，不会提交到 Git。
+
+### 3. Docker 一键部署（推荐）
+
+```bash
+# 构建并启动所有服务（首次会自动下载镜像和模型，约 10-20 分钟）
 docker-compose up -d --build
 
-# 4. 查看启动进度
+# 查看启动进度（看到 "Application startup complete" 表示后端就绪）
 docker-compose logs -f backend
 ```
 
-启动成功后访问：
-- **前端入口**：http://localhost（Nginx 托管）
-- **后端 API**：http://localhost:8000/api/v1
-- **Swagger 文档**：http://localhost:8000/docs
-- **MinIO 控制台**：http://localhost:9001（账号：minioadmin / minioadmin）
+**首次启动说明：**
+- 首次会拉取 MongoDB/Redis/Milvus/MinIO 等镜像（约 5GB），需较好网络
+- 后端启动后会自动下载 BGE-M3 和 BGE-Reranker 模型到 Docker volume（约 4-5GB）
+- 模型下载期间后端可能反复重启（等待模型就绪），属于正常现象
+- 全部就绪通常需要 10-20 分钟，后续启动只需 1-2 分钟
 
-**服务说明：**
+### 4. 验证部署成功
+
+按以下顺序检查各服务状态：
+
+```bash
+# 1. 查看所有服务状态（应全部为 healthy 或 running）
+docker-compose ps
+
+# 2. 测试后端健康检查
+curl http://localhost:8000/health
+# 预期返回：{"status":"healthy","services":{...}}
+
+# 3. 测试 API 文档可访问
+# 浏览器打开 http://localhost:8000/docs
+
+# 4. 测试前端页面
+# 浏览器打开 http://localhost
+```
+
+如果健康检查返回各服务均为 `healthy`，且前端页面正常加载，说明部署成功。
+
+### 5. 访问系统
+
+启动成功后访问：
+
+| 入口 | 地址 | 说明 |
+|------|------|------|
+| 前端 | http://localhost | Nginx 托管前端页面 |
+| 后端 API | http://localhost:8000/api/v1 | FastAPI 后端 |
+| Swagger 文档 | http://localhost:8000/docs | API 交互文档 |
+| MinIO 控制台 | http://localhost:9001 | 账号见 `.env` 中 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
+
+**服务端口说明：**
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
 | frontend (Nginx) | 80 | 前端静态资源 + API 反向代理 |
 | backend (FastAPI) | 8000 | 后端 API 服务 |
 | MongoDB | 27017 | 主数据库 |
-| Redis | 6379 | 缓存 / Token 黑名单 |
+| Redis | 6380 | 缓存 / Token 黑名单（宿主机映射为 6380） |
 | MinIO | 9000/9001 | 对象存储（简历文件 + Milvus 数据） |
 | Milvus | 19530 | 向量数据库 |
 | etcd | — | Milvus 元数据（内部使用） |
 
-**常用命令：**
+### 6. 默认登录账号
+
+后端首次启动时，会根据 `.env` 中的配置自动创建管理员账号：
+- **邮箱**：你在 `.env` 中设置的 `ADMIN_EMAIL`
+- **密码**：你在 `.env` 中设置的 `ADMIN_PASSWORD`
+- **角色**：`admin`（拥有全部权限）
+
+登录使用**邮箱 + 密码**方式。其他用户需通过登录页"申请账号"入口提交注册申请（email/name 必填），由管理员审批后方可登录；管理员也可在「用户管理」页直接开号。
+
+### 7. 运行测试
+
+```bash
+# 后端全量测试
+cd backend
+.venv\Scripts\python.exe -m pytest        # Windows
+# python -m pytest                         # Linux/Mac
+
+# 后端 E2E 测试（32 步招聘闭环）
+.venv\Scripts\python.exe -m pytest tests/e2e/ -v
+
+# 前端全量测试
+cd frontend
+npm test
+```
+
+### 常用 Docker 命令
 
 ```bash
 docker-compose ps                    # 查看服务状态
 docker-compose logs -f backend       # 查看后端日志
+docker-compose logs -f frontend      # 查看前端日志
 docker-compose restart backend       # 重启后端
 docker-compose down                  # 停止所有服务（数据保留在 volume 中）
-docker-compose down -v               # 停止并删除所有数据（慎用）
+docker-compose down -v               # 停止并删除所有数据（慎用！会清空数据库）
+```
+
+### 数据管理
+
+```bash
+# 备份数据（MongoDB）
+docker exec ts-mongodb mongodump -u hrcopilot -p <MONGO_ROOT_PASSWORD> --authenticationDatabase admin --db talentsense --out /backup
+
+# 恢复数据（MongoDB）
+docker exec ts-mongodb mongorestore -u hrcopilot -p <MONGO_ROOT_PASSWORD> --authenticationDatabase admin /backup
+
+# 清理全部数据重新开始（慎用）
+docker-compose down -v
+docker-compose up -d --build
 ```
 
 > 首次启动时 BGE-M3 和 BGE-Reranker 模型会自动下载到 Docker volume `model_data` 中（约 4-5GB），后续启动无需重新下载。如需挂载本地模型，可在 `docker-compose.yml` 的 backend service 添加：`- /your/local/models:/app/models`。
 
-### 3. 本地开发启动
+### 本地开发启动
 
-如需本地开发（不使用 Docker），按以下步骤启动：
+如需本地开发（不使用 Docker），按以下步骤启动。也可用 Docker 仅启动基础设施（MongoDB/Redis/Milvus/MinIO），后端和前端在本地跑。
 
-#### 3.1 后端启动
+#### 3.1 安装 uv 包管理器
+
+```bash
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Linux/Mac
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### 3.2 后端启动
 
 ```bash
 cd backend
+
+# 创建虚拟环境
 uv venv .venv --python 3.12
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate     # Linux/Mac
-uv pip install -r requirements.txt
+
+# 安装依赖（使用国内镜像加速）
+uv pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env，填入 LLM_API_KEY、数据库连接等
+# 编辑 .env，填入 LLM_API_KEY、JWT_SECRET、数据库连接、ADMIN_PASSWORD、ADMIN_EMAIL 等
+# 注意：MINIO_ACCESS_KEY/MINIO_SECRET_KEY/ADMIN_PASSWORD/ADMIN_EMAIL 为必填项
 
 # 下载 BGE-M3 与 BGE-Reranker 模型到 backend/models/
+# 方式一：用 huggingface-cli 下载（推荐，支持断点续传）
+pip install huggingface_hub
+huggingface-cli download BAAI/bge-m3 --local-dir ./models/bge-m3
+huggingface-cli download BAAI/bge-reranker-v2-m3 --local-dir ./models/bge-reranker-v2-m3
+
+# 方式二：用 modelscope 下载（国内更快）
+pip install modelscope
+modelscope download --model BAAI/bge-m3 --local_dir ./models/bge-m3
+modelscope download --model BAAI/bge-reranker-v2-m3 --local_dir ./models/bge-reranker-v2-m3
 
 # 启动开发服务器
 .venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -579,11 +704,13 @@ cp .env.example .env
 - 健康检查：http://localhost:8000/health
 - Swagger 文档：http://localhost:8000/docs
 
-#### 3.2 前端启动
+#### 3.3 前端启动
 
 ```bash
 cd frontend
-npm install
+
+# 安装依赖（使用国内镜像加速）
+npm install --registry=https://registry.npmmirror.com
 
 # 启动开发服务器（已配置 /api 代理到后端 8000 端口）
 npm run dev
@@ -591,16 +718,22 @@ npm run dev
 
 前端启动后访问：http://localhost:5173/
 
-#### 3.3 前后端对接启动（推荐开发方式）
+#### 3.4 前后端联调（推荐开发方式）
 
-**终端 1 - 启动后端：**
+**终端 1 - 启动基础设施：**
+
+```bash
+docker-compose up mongo redis minio minio-init milvus -d
+```
+
+**终端 2 - 启动后端：**
 
 ```bash
 cd backend
 .venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**终端 2 - 启动前端：**
+**终端 3 - 启动前端：**
 
 ```bash
 cd frontend
@@ -608,60 +741,54 @@ npm run dev
 ```
 
 前端 `vite.config.ts` 已配置代理：`/api` → `http://localhost:8000`，浏览器访问 http://localhost:5173/ 即可使用完整功能，无需处理跨域。
-
-### 4. 默认登录账号
-
-后端启动时自动初始化管理员账号（凭据走 `.env`，可自定义）：
-- **邮箱**：`a****@********`（由 `.env` 的 `ADMIN_EMAIL` 配置）
-- 密码：`admin123`
-- 角色：`admin`
-
-登录使用**邮箱 + 密码**方式。其他用户需通过登录页"申请账号"入口提交注册申请（email/name 必填），由管理员审批后方可登录；管理员也可在「用户管理」页直接开号。
-
-### 5. 运行测试
-
-```bash
-# 后端全量测试（331 个）
-cd backend
-.venv\Scripts\python.exe -m pytest
-
-# 后端 E2E 测试（32 步招聘闭环）
-.venv\Scripts\python.exe -m pytest tests/e2e/ -v
-
-# 前端全量测试（133 个）
-cd frontend
-npm test
 ```
 
 ## 配置说明
 
-### 后端配置
+### Docker Compose 配置（根目录 `.env`）
 
-所有配置通过 `.env` 文件管理，禁止硬编码。完整配置项见 [`backend/.env.example`](backend/.env.example)：
+Docker 部署时，所有配置通过根目录 `.env` 文件管理（模板见 [`.env.example`](.env.example)）：
 
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `APP_NAME` | 应用名称 | TalentSense HR |
-| `API_V1_PREFIX` | API 前缀 | /api/v1 |
-| `MONGO_URI` | MongoDB 连接串 | mongodb://localhost:27017 |
-| `MONGO_DB` | MongoDB 库名 | talentsense |
-| `REDIS_URL` | Redis 连接串 | redis://localhost:6379/0 |
-| `MILVUS_HOST` / `MILVUS_PORT` | Milvus 地址 | localhost:19530 |
-| `MINIO_ENDPOINT` | MinIO 地址 | localhost:9000 |
-| `LLM_API_KEY` | LLM API Key | （必填） |
-| `LLM_BASE_URL` | LLM 接口地址 | 通义千问兼容模式 |
-| `LLM_MODEL` | LLM 模型名 | qwen-plus |
-| `JWT_SECRET` | JWT 签名密钥 | （生产必改） |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token 有效期 | 60 |
-| `BGE_M3_PATH` | BGE-M3 模型路径 | ./models/bge-m3 |
-| `BGE_RERANKER_PATH` | BGE-Reranker 模型路径 | ./models/bge-reranker-v2-m3 |
-| `HYBRID_DENSE_WEIGHT` | 稠密向量权重 | 1.0 |
-| `HYBRID_SPARSE_WEIGHT` | 稀疏向量权重 | 0.7 |
-| `RETRIEVE_TOP_K` | 初筛召回数 | 20 |
-| `RERANK_TOP_K` | 精排返回数 | 10 |
-| `ADMIN_USERNAME` | 自动初始化管理员用户名 | admin |
-| `ADMIN_PASSWORD` | 自动初始化管理员密码 | admin123 |
-| `ADMIN_EMAIL` | 自动初始化管理员邮箱（登录用） | admin@talentsense.com |
+| 配置项 | 说明 | 必填 | 默认值 |
+|--------|------|------|--------|
+| `LLM_API_KEY` | LLM API Key（通义千问/OpenAI） | 是 | — |
+| `LLM_BASE_URL` | LLM 接口地址 | 否 | 通义千问兼容模式 |
+| `LLM_MODEL` | LLM 模型名 | 否 | qwen-plus |
+| `JWT_SECRET` | JWT 签名密钥（生产必改） | 是 | — |
+| `MONGO_ROOT_USERNAME` | MongoDB root 用户名 | 否 | hrcopilot |
+| `MONGO_ROOT_PASSWORD` | MongoDB root 密码 | 是 | — |
+| `MONGO_DB` | MongoDB 库名 | 否 | talentsense |
+| `REDIS_PASSWORD` | Redis 密码 | 是 | — |
+| `MINIO_ROOT_USER` | MinIO root 用户名 | 否 | hrcopilot |
+| `MINIO_ROOT_PASSWORD` | MinIO root 密码（Milvus 共用） | 是 | — |
+| `MINIO_BUCKET` | MinIO bucket 名 | 否 | resumes |
+| `MILVUS_COLLECTION` | Milvus 集合名 | 否 | resumes |
+| `ADMIN_USERNAME` | 管理员用户名 | 否 | admin |
+| `ADMIN_PASSWORD` | 管理员登录密码 | 是 | — |
+| `ADMIN_EMAIL` | 管理员登录邮箱 | 是 | — |
+| `SENTRY_DSN` | Sentry 错误追踪 DSN | 否 | 空（不启用） |
+| `LOG_LEVEL` | 日志级别 | 否 | INFO |
+| `DEBUG` | 是否调试模式 | 否 | false |
+
+### 后端本地开发配置（`backend/.env`）
+
+本地开发时，后端通过 `backend/.env` 文件管理（模板见 [`backend/.env.example`](backend/.env.example)）：
+
+| 配置项 | 说明 | 必填 | 默认值 |
+|--------|------|------|--------|
+| `MONGO_URI` | MongoDB 连接串 | 是 | mongodb://localhost:27017 |
+| `MONGO_DB` | MongoDB 库名 | 否 | talentsense |
+| `REDIS_URL` | Redis 连接串 | 是 | redis://localhost:6379/0 |
+| `MILVUS_HOST` / `MILVUS_PORT` | Milvus 地址 | 否 | localhost:19530 |
+| `MINIO_ENDPOINT` | MinIO 地址 | 否 | localhost:9000 |
+| `MINIO_ACCESS_KEY` | MinIO Access Key | 是 | — |
+| `MINIO_SECRET_KEY` | MinIO Secret Key | 是 | — |
+| `LLM_API_KEY` | LLM API Key | 是 | — |
+| `JWT_SECRET` | JWT 签名密钥 | 是 | — |
+| `BGE_M3_PATH` | BGE-M3 模型路径 | 否 | ./models/bge-m3 |
+| `BGE_RERANKER_PATH` | BGE-Reranker 模型路径 | 否 | ./models/bge-reranker-v2-m3 |
+| `ADMIN_PASSWORD` | 管理员密码 | 是 | — |
+| `ADMIN_EMAIL` | 管理员邮箱 | 是 | — |
 
 ### 前端配置
 
@@ -748,6 +875,181 @@ npm test
 - **Components**：14 个组件渲染与事件测试
 - **Views**：8 个页面视图挂载测试
 
+## 常见问题排查（FAQ）
+
+### Q1: 后端启动报错 "ValidationError" / "field required"
+
+**原因**：`.env` 中缺少必填项。改造后 `LLM_API_KEY`、`JWT_SECRET`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`ADMIN_PASSWORD`、`ADMIN_EMAIL` 均为必填。
+
+**解决**：检查 `.env` 是否从 `.env.example` 完整复制，并填写了所有【必填】标记的配置项。
+
+### Q2: 端口被占用（Address already in use）
+
+```bash
+# 查看占用端口的进程（以 8000 为例）
+# Windows
+netstat -ano | findstr :8000
+taskkill /PID <进程ID> /F
+
+# Linux/Mac
+lsof -i :8000
+kill -9 <PID>
+```
+
+或修改 `docker-compose.yml` 中的端口映射，如将 `"8000:8000"` 改为 `"8001:8000"`。
+
+### Q3: Milvus 启动失败或一直不健康
+
+**原因**：Milvus 首次启动较慢（需初始化 etcd + MinIO bucket），`start_period` 设为 90s。
+
+**解决**：
+```bash
+# 查看 Milvus 日志
+docker-compose logs milvus
+
+# 若 etcd 未就绪，重启 Milvus
+docker-compose restart milvus
+
+# 若问题持续，清理 volume 重新开始（会丢失向量数据）
+docker-compose down -v
+docker-compose up -d
+```
+
+### Q4: 模型下载失败 / 超时（BGE-M3 / BGE-Reranker）
+
+**原因**：模型从 HuggingFace 下载，国内网络可能不稳定。
+
+**解决**：
+- Docker 部署：模型自动下载到 `model_data` volume，失败后会自动重试
+- 本地开发：使用 modelscope 下载（国内更快）：
+  ```bash
+  pip install modelscope
+  modelscope download --model BAAI/bge-m3 --local_dir ./models/bge-m3
+  modelscope download --model BAAI/bge-reranker-v2-m3 --local_dir ./models/bge-reranker-v2-m3
+  ```
+
+### Q5: 内存不足导致容器被 OOM Kill
+
+**原因**：Milvus + BGE 模型同时运行内存需求较大。
+
+**解决**：
+- 确保 Docker 分配了至少 8GB 内存（Docker Desktop: Settings → Resources → Memory）
+- 生产环境建议 16GB 以上
+- 查看容器内存使用：`docker stats`
+
+### Q6: 登录失败 "401 Unauthorized"
+
+**原因**：
+1. 管理员账号尚未初始化（后端首次启动时创建）
+2. 邮箱或密码与 `.env` 配置不符
+3. 用户状态为 `pending`（需管理员审批）或 `disabled`
+
+**解决**：
+```bash
+# 查看后端日志确认 admin 是否初始化成功
+docker-compose logs backend | findstr admin
+
+# 重置管理员密码（需在 backend 目录执行）
+cd backend
+.venv\Scripts\python.exe scripts/reset_admin_pw.py
+```
+
+### Q7: 前端页面空白 / API 请求 404
+
+**原因**：前端 Nginx 代理配置问题或后端未启动。
+
+**解决**：
+```bash
+# 确认后端健康
+curl http://localhost:8000/health
+
+# 确认前端容器正常运行
+docker-compose logs frontend
+
+# 本地开发模式确认 vite 代理配置
+# frontend/vite.config.ts 中 server.proxy 指向 http://localhost:8000
+```
+
+### Q8: docker-compose up 提示变量未设置
+
+**原因**：`.env` 文件未创建或缺少必填变量。
+
+**解决**：
+```bash
+# 确认 .env 文件存在
+ls .env
+
+# 若不存在，从模板创建
+cp .env.example .env
+# 然后编辑 .env 填入所有必填项
+```
+
+### Q9: 上传简历失败
+
+**原因**：MinIO 未就绪或 bucket 未创建。
+
+**解决**：
+```bash
+# 查看 MinIO 日志
+docker-compose logs minio
+
+# 手动初始化 bucket
+docker-compose up minio-init
+
+# 或在 MinIO 控制台手动创建 resumes bucket
+```
+
+### Q10: 对话无响应 / SSE 连接断开
+
+**原因**：LLM API Key 无效或网络不通。
+
+**解决**：
+```bash
+# 测试 LLM API 连通性
+curl -X POST <LLM_BASE_URL>/chat/completions \
+  -H "Authorization: Bearer <你的API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen-plus","messages":[{"role":"user","content":"hello"}]}'
+
+# 查看后端日志中的错误信息
+docker-compose logs backend | findstr error
+```
+
+## 安全注意事项
+
+开源部署前请务必检查以下安全项：
+
+### 必须修改的配置
+
+| 配置项 | 风险 | 操作 |
+|--------|------|------|
+| `LLM_API_KEY` | 他人可盗用你的 API 额度 | 使用自己的 Key，定期轮换 |
+| `JWT_SECRET` | Token 可被伪造 | 生成随机字符串，不要用默认值 |
+| `MONGO_ROOT_PASSWORD` | 数据库可被未授权访问 | 使用强密码 |
+| `REDIS_PASSWORD` | 缓存数据可被窃取 | 使用强密码 |
+| `MINIO_ROOT_PASSWORD` | 简历文件可被未授权下载 | 使用强密码 |
+| `ADMIN_PASSWORD` | 管理员账号可被入侵 | 使用强密码 |
+
+### 敏感文件保护
+
+- `.env` 文件已被 `.gitignore` 忽略，**切勿提交到 Git**
+- 若 API Key 曾被提交到 Git 历史，**必须立即吊销并重新生成**
+- 检查方法：`git log --all -- '*.env'`（应无输出）
+
+### 生产环境建议
+
+1. **HTTPS**：在 Nginx 前加 TLS 证书（Let's Encrypt 免费），避免凭据明文传输
+2. **防火墙**：仅暴露 80/443 端口，MongoDB/Redis/MinIO/Milvus 不对外
+3. **密码强度**：所有密码至少 16 位，含大小写字母+数字+特殊字符
+4. **定期备份**：MongoDB 数据定期 `mongodump` 备份
+5. **日志审计**：开启 Sentry 错误追踪，监控异常访问
+6. **最小权限**：非管理员仅授予 `hr` 角色，`admin` 角色仅限可信人员
+
+### 已知安全限制
+
+- SMTP 密码使用 base64 编码存储（非加密），任何能读取 MongoDB 的人可还原明文。生产环境建议升级为 Fernet/AES 加密
+- 默认 Token 有效期 60 分钟，Refresh Token 7 天，可根据安全需求调整
+
 ## 开发规范
 
 ### 工程约定
@@ -811,4 +1113,6 @@ refactor: 重构XX逻辑
 
 ## License
 
-Private © TalentSense Team
+MIT License © TalentSense Team
+
+本项目基于 MIT 协议开源，欢迎学习、使用和二次开发。使用时请保留原始版权声明。

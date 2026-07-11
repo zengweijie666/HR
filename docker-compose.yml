@@ -10,11 +10,11 @@ services:
     volumes:
       - mongo_data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: hrcopilot
-      MONGO_INITDB_ROOT_PASSWORD: hrcopilot123
-      MONGO_INITDB_DATABASE: talentsense
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-hrcopilot}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-talentsense}
     healthcheck:
-      test: ["CMD", "mongosh", "-u", "hrcopilot", "-p", "hrcopilot123", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "-u", "${MONGO_ROOT_USERNAME:-hrcopilot}", "-p", "${MONGO_ROOT_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,9 +30,9 @@ services:
       - "6380:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass hrcopilot123
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "hrcopilot123", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,8 +49,8 @@ services:
     volumes:
       - minio_data:/data
     environment:
-      MINIO_ROOT_USER: hrcopilot
-      MINIO_ROOT_PASSWORD: hrcopilot123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hrcopilot}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     networks:
       - talentsense-net
@@ -62,7 +62,7 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 hrcopilot hrcopilot123 2>/dev/null; do
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-hrcopilot} ${MINIO_ROOT_PASSWORD} 2>/dev/null; do
         echo '等待 MinIO 启动...';
         sleep 2;
       done;
@@ -103,8 +103,8 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
-      MINIO_ACCESS_KEY_ID: hrcopilot
-      MINIO_SECRET_ACCESS_KEY: hrcopilot123
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-hrcopilot}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET_NAME: milvus-bucket
       MINIO_USE_SSL: "false"
     volumes:
@@ -142,21 +142,21 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_URI=mongodb://${MONGO_ROOT_USERNAME:-hrcopilot}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
       - MONGO_DB=${MONGO_DB:-talentsense}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - MILVUS_HOST=milvus
       - MILVUS_PORT=19530
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-resumes}
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-hrcopilot}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       - MINIO_BUCKET=${MINIO_BUCKET:-resumes}
       - MINIO_SECURE=false
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - LLM_MODEL=${LLM_MODEL:-qwen-plus}
-      - JWT_SECRET=${JWT_SECRET:-change-this-in-production-please}
+      - JWT_SECRET=${JWT_SECRET}
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=60
       - REFRESH_TOKEN_EXPIRE_DAYS=7
@@ -167,8 +167,8 @@ services:
       - RETRIEVE_TOP_K=20
       - RERANK_TOP_K=10
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@test.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
       - DEBUG=false
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0.1}

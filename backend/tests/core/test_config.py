@@ -12,6 +12,10 @@ def test_settings_loads_defaults(monkeypatch):
     """测试默认配置加载"""
     monkeypatch.setenv("LLM_API_KEY", "sk-test")
     monkeypatch.setenv("JWT_SECRET", "secret-test")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "minioadmin")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "minioadmin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@test.com")
     monkeypatch.setenv("LLM_MODEL", "qwen-plus")
     s = Settings()
     assert s.APP_NAME == "TalentSense HR"
@@ -27,6 +31,10 @@ def test_settings_reads_env(monkeypatch):
     """测试环境变量覆盖"""
     monkeypatch.setenv("LLM_API_KEY", "sk-override")
     monkeypatch.setenv("JWT_SECRET", "secret-override")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "minioadmin")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "minioadmin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@test.com")
     monkeypatch.setenv("MONGO_DB", "test_db")
     s = Settings()
     assert s.LLM_API_KEY == "sk-override"

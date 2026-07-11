@@ -2,8 +2,10 @@
 文件名: scripts/create_test_user.py
 创建时间: 2026-06-28
 功能描述: 直接在MongoDB中创建/更新一个已审批的测试用户
+入参: 环境变量 TEST_USER_EMAIL / TEST_USER_PASSWORD（从 .env 读取）
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -16,8 +18,8 @@ from app.services.auth_service import AuthService
 async def main():
     await MongoDB.connect()
     coll = MongoDB.db.users
-    email = "h*@******"
-    password = "hr123456"
+    email = os.environ.get("TEST_USER_EMAIL", "hr_test@example.com")
+    password = os.environ.get("TEST_USER_PASSWORD", "change-me-in-env")
     result = await coll.update_one(
         {"email": email},
         {"$set": {
@@ -30,7 +32,7 @@ async def main():
         }},
         upsert=True,
     )
-    print(f"用户已创建/更新: email={email}, password={password}, matched={result.matched_count}, upserted={result.upserted_id}")
+    print(f"用户已创建/更新: email={email}, password=***（已隐藏，见环境变量）, matched={result.matched_count}, upserted={result.upserted_id}")
     await MongoDB.disconnect()
 
 
