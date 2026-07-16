@@ -62,13 +62,15 @@
 /**
  * ChatPanel 对话主面板
  * 串联 useChatStore / useAuthStore，处理发送与流式接收
+ *
+ * SSE 生命周期由 chatStore.startStreamSession 管理，
+ * 切换路由导致组件卸载时不会中止流，回到工作台仍能继续接收回复。
  */
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Promotion } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
-import { sendMessageStream } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import StreamIndicator from './StreamIndicator.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -79,8 +81,6 @@ const authStore = useAuthStore()
 
 const draft = ref<string>('')
 const messageListRef = ref<HTMLElement | null>(null)
-/** 当前 SSE 请求的 AbortController，用于切换会话或组件卸载时中止 */
-let currentAbortController: AbortController | null = null
 
 /** 当前会话标题 */
 const currentTitle = computed(() => {
@@ -114,14 +114,6 @@ watch(
   () => chatStore.messages.length,
   () => scrollToBottom(),
 )
-
-/** 组件卸载时中止进行中的 SSE 请求，防止 token 写入已卸载的 store */
-onUnmounted(() => {
-  if (currentAbortController) {
-    currentAbortController.abort()
-    currentAbortController = null
-  }
-})
 
 /** 处理发送 */
 async function handleSend(): Promise<void> {
@@ -162,16 +154,12 @@ async function handleSend(): Promise<void> {
   }
   chatStore.addMessage(assistantMsg)
 
-  // 3. 启动流式
+  // 3. 启动流式（store 层管理 AbortController，组件卸载不中止）
   chatStore.startStream()
   draft.value = ''
 
-  // 4. 调用流式接口
-  // 创建 AbortController 用于中止进行中的 SSE 请求
-  const abortController = new AbortController()
-  currentAbortController = abortController
   try {
-    await sendMessageStream(
+    await chatStore.startStreamSession(
       sessionId,
       query,
       { user_id: authStore.user?.user_id },
@@ -216,20 +204,15 @@ async function handleSend(): Promise<void> {
           ElMessage.error(data.message || '流式响应出错')
         },
       },
-      abortController.signal,
     )
   } catch (err) {
-    // AbortError 是主动中止，不需要提示
+    // AbortError 是主动中止（切换会话/重新发送），不需要提示
     if (err instanceof DOMException && err.name === 'AbortError') {
       // 静默处理
     } else {
       const msg = err instanceof Error ? err.message : '发送失败'
       ElMessage.error(msg)
     }
-  } finally {
-    // 6. 停止流式
-    chatStore.stopStream()
-    currentAbortController = null
   }
 }
 </script>

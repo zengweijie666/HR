@@ -4,12 +4,14 @@
  * 作者: TalentSense Team
  * 功能描述: 对话状态管理（Composition API 风格）
  *   - sessions 会话列表 / currentSessionId 当前会话
- *   - messages 当前会话消息 / streaming 流式状态
+ *   - messages 当前会话消息列表 / streaming 流式状态
  *   - intent / strategy 当前意图与策略
+ *   - startStreamSession 集中管理 SSE 生命周期，组件卸载不中止流
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { ChatSession, ChatMessage } from '@/types/chat'
+import type { ChatSession, ChatMessage, SSEHandlers } from '@/types/chat'
+import { sendMessageStream } from '@/api/chat'
 
 export const useChatStore = defineStore('chat', () => {
   /** 会话列表 */
@@ -26,6 +28,12 @@ export const useChatStore = defineStore('chat', () => {
   const strategy = ref<string>('')
   /** 当前精排阶段进度提示 */
   const progressMessage = ref<string>('')
+
+  /**
+   * 当前进行中的 SSE 请求 AbortController
+   * 保存在 store 而非组件，组件卸载不会触发中止，切换路由后回来仍能继续接收
+   */
+  let currentAbortController: AbortController | null = null
 
   /**
    * 设置会话列表
@@ -126,6 +134,59 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
   }
 
+  /**
+   * 启动 SSE 流式会话（在 store 层管理生命周期）
+   *
+   * 将 SSE 请求的 AbortController 存于 store 而非组件实例，
+   * 组件卸载（切换路由）不会自动中止流，回到工作台仍能继续接收回复。
+   * 只有用户主动切换会话或重新发送时才中止上一个流。
+   *
+   * @param sessionId 会话 ID
+   * @param query 用户查询
+   * @param context 上下文（如 user_id）
+   * @param handlers SSE 事件处理器
+   * @returns Promise<void>，流读取完毕后 resolve
+   */
+  async function startStreamSession(
+    sessionId: string,
+    query: string,
+    context: Record<string, unknown>,
+    handlers: SSEHandlers,
+  ): Promise<void> {
+    // 中止上一个进行中的流（切换会话或重新发送场景）
+    abortStream()
+    const abortController = new AbortController()
+    currentAbortController = abortController
+    try {
+      await sendMessageStream(
+        sessionId,
+        query,
+        context,
+        handlers,
+        abortController.signal,
+      )
+    } finally {
+      if (currentAbortController === abortController) {
+        currentAbortController = null
+      }
+      stopStream()
+    }
+  }
+
+  /**
+   * 主动中止当前进行中的 SSE 流（用于切换会话等场景）
+   *
+   * 与组件卸载不同：切换会话时旧会话的 SSE 应被中止，
+   * 避免旧回复串入新会话消息列表。
+   */
+  function abortStream(): void {
+    if (currentAbortController) {
+      currentAbortController.abort()
+      currentAbortController = null
+      stopStream()
+    }
+  }
+
   return {
     sessions,
     currentSessionId,
@@ -146,5 +207,7 @@ export const useChatStore = defineStore('chat', () => {
     startStream,
     stopStream,
     reset,
+    startStreamSession,
+    abortStream,
   }
 })

@@ -130,9 +130,14 @@ async function handleNewSession(): Promise<void> {
 
 /**
  * 选择会话
+ *
+ * 切换会话时若上一个 SSE 流仍在进行，需中止以避免旧会话的回复串入新会话。
+ * 组件卸载（切路由）不中止流，但显式切换会话必须中止。
+ *
  * @param id 会话 ID
  */
 async function handleSelectSession(id: string): Promise<void> {
+  chatStore.abortStream()
   chatStore.setCurrentSession(id)
   chatStore.reset()
   await loadMessages(id)
