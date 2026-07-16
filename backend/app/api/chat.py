@@ -8,6 +8,8 @@
 """
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from pydantic import Field
+from app.models.chat import SessionCreate, SendMessageRequest
 from app.services.agent_service import AgentService
 from app.api.deps import get_current_user
 from app.core.response import success
@@ -16,10 +18,10 @@ router = APIRouter()
 
 
 @router.post("/sessions")
-async def create_session(body: dict, user: dict = Depends(get_current_user)):
+async def create_session(body: SessionCreate, user: dict = Depends(get_current_user)):
     """AC10.1: 创建会话"""
     result = await AgentService().create_session(
-        user_id=user["user_id"], title=body.get("title", "新会话")
+        user_id=user["user_id"], title=body.title
     )
     return success(data=result)
 
@@ -52,7 +54,7 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
 
 @router.post("/sessions/{session_id}/messages")
 async def send_message(
-    session_id: str, body: dict, user: dict = Depends(get_current_user)
+    session_id: str, body: SendMessageRequest, user: dict = Depends(get_current_user)
 ):
     """AC12.1-12.3: SSE 流式响应
 
@@ -61,8 +63,8 @@ async def send_message(
     响应:
         text/event-stream，事件类型 intent/retrieval/rank/candidates/token/done/error
     """
-    query = body.get("query", "")
-    filters = body.get("context", {}).get("filters")
+    query = body.query
+    filters = body.context.get("filters") if body.context else None
 
     async def stream():
         async for event in AgentService().send_message_stream(

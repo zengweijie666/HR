@@ -7,12 +7,28 @@
 出参: 统一响应 success/error
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
+from pydantic import BaseModel, Field
 from app.services.resume_service import ResumeService
 from app.services.tag_service import TagService
 from app.api.deps import get_current_user, require_admin
 from app.core.response import success
 
 router = APIRouter()
+
+
+class UpdateTagsRequest(BaseModel):
+    """标签更新请求体"""
+    tags: list[str] = Field(default_factory=list, description="标签列表")
+
+
+class ToggleFavoriteRequest(BaseModel):
+    """收藏切换请求体"""
+    is_favorite: bool = Field(..., description="是否收藏")
+
+
+class UpdateNotesRequest(BaseModel):
+    """备注更新请求体"""
+    notes: str = Field(default="", description="评价备注")
 
 
 @router.post("/upload")
@@ -80,21 +96,21 @@ async def preview(resume_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.put("/{resume_id}/tags")
-async def update_tags(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+async def update_tags(resume_id: str, body: UpdateTagsRequest, user: dict = Depends(get_current_user)):
     """AC7.1/7.4: 全量覆盖标签"""
-    result = await TagService().update_tags(resume_id, body["tags"])
+    result = await TagService().update_tags(resume_id, body.tags)
     return success(data=result)
 
 
 @router.put("/{resume_id}/favorite")
-async def toggle_favorite(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+async def toggle_favorite(resume_id: str, body: ToggleFavoriteRequest, user: dict = Depends(get_current_user)):
     """AC8.1/8.2: 切换收藏状态"""
-    result = await TagService().toggle_favorite(resume_id, body["is_favorite"])
+    result = await TagService().toggle_favorite(resume_id, body.is_favorite)
     return success(data=result)
 
 
 @router.put("/{resume_id}/notes")
-async def update_notes(resume_id: str, body: dict, user: dict = Depends(get_current_user)):
+async def update_notes(resume_id: str, body: UpdateNotesRequest, user: dict = Depends(get_current_user)):
     """AC9.1: 更新评价备注"""
-    result = await TagService().update_notes(resume_id, body["notes"])
+    result = await TagService().update_notes(resume_id, body.notes)
     return success(data=result)

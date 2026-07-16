@@ -42,7 +42,10 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout(user: dict = Depends(get_current_user), authorization: str = Header(...)):
+async def logout(user: dict = Depends(get_current_user), authorization: str = Header(default=None)):
+    """AC1.6: 退出登录，将当前 token 加入黑名单"""
+    if not authorization or not authorization.startswith("Bearer "):
+        return success()
     token = authorization[7:]
     await AuthService().logout(token)
     return success()

@@ -19,7 +19,7 @@ router = APIRouter()
 async def export_excel(body: dict, user: dict = Depends(get_current_user)):
     """AC14.1: 导出 Excel"""
     excel_bytes = await ExportService().export_excel(
-        candidate_ids=body.get("candidate_ids", []),
+        resume_ids=body.get("resume_ids", []),
         columns=body.get("columns", ["name", "work_years", "skills"]),
     )
     return Response(

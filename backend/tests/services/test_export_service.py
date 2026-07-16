@@ -32,7 +32,7 @@ async def test_export_excel_basic(svc):
             "location": "北京"
         }
     ])
-    excel_bytes = await svc.export_excel(candidate_ids=["c1"], columns=["name", "skills", "work_years"])
+    excel_bytes = await svc.export_excel(resume_ids=["r1"], columns=["name", "skills", "work_years"])
     wb = load_workbook(io.BytesIO(excel_bytes))
     ws = wb.active
     assert ws.cell(1, 1).value == "姓名"
@@ -43,7 +43,7 @@ async def test_export_excel_basic(svc):
 async def test_export_excel_empty(svc):
     """AC14.2: 空列表返回仅含表头"""
     svc.resumes_coll.find.return_value.to_list = AsyncMock(return_value=[])
-    excel_bytes = await svc.export_excel(candidate_ids=[], columns=["name"])
+    excel_bytes = await svc.export_excel(resume_ids=[], columns=["name"])
     wb = load_workbook(io.BytesIO(excel_bytes))
     ws = wb.active
     assert ws.cell(1, 1).value == "姓名"
@@ -59,7 +59,7 @@ async def test_export_excel_all_columns(svc):
     ])
     columns = ["name", "gender", "age", "education", "work_years", "skills",
                "expected_salary", "tags", "phone_masked", "email_masked", "location"]
-    excel_bytes = await svc.export_excel(candidate_ids=["c1"], columns=columns)
+    excel_bytes = await svc.export_excel(resume_ids=["r1"], columns=columns)
     wb = load_workbook(io.BytesIO(excel_bytes))
     assert wb.active.max_column == len(columns)
 
@@ -77,7 +77,7 @@ async def test_export_by_resume_ids(svc):
         }
     ])
     excel_bytes = await svc.export_excel(
-        candidate_ids=["res_001"],  # 前端实际传的是 resume_id
+        resume_ids=["res_001"],
         columns=["name", "work_years"]
     )
     # 验证查询用的是 resume_id 而非 candidate_id

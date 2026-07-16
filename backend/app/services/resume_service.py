@@ -446,8 +446,8 @@ class ResumeService:
         if keyword:
             query["$or"] = [
                 {"basic_info.name": {"$regex": keyword, "$options": "i"}},
-                {"skills": {"$regex": keyword, "$options": "i"}},
-                {"tags": {"$regex": keyword, "$options": "i"}},
+                {"skills": {"$elemMatch": {"$regex": keyword, "$options": "i"}}},
+                {"tags": {"$elemMatch": {"$regex": keyword, "$options": "i"}}},
                 {"summary": {"$regex": keyword, "$options": "i"}},
             ]
         if tag:
@@ -460,6 +460,8 @@ class ResumeService:
             query["work_years"] = {"$gte": work_years_min}
         if salary_max is not None:
             query["expected_salary.min"] = {"$lte": salary_max}
+        if salary_min is not None:
+            query["expected_salary.max"] = {"$gte": salary_min}
         if status:
             query["parse_info.parse_status"] = status
         # 日期范围筛选（自动交换倒序日期）

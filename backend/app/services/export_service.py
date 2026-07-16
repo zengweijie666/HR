@@ -46,11 +46,11 @@ class ExportService:
         """测试注入用"""
         self._resumes_coll = value
 
-    async def export_excel(self, candidate_ids: list[str], columns: list[str]) -> bytes:
+    async def export_excel(self, resume_ids: list[str], columns: list[str]) -> bytes:
         """AC14.1-14.3: 导出 Excel
 
         入参:
-            candidate_ids: 候选人 ID 列表
+            resume_ids: 简历 ID 列表（对应 resumes 集合的 resume_id 字段）
             columns: 导出列名（英文键）
         出参:
             Excel 文件字节流
@@ -63,11 +63,11 @@ class ExportService:
         headers = [COLUMN_MAP.get(c, c) for c in columns]
         ws.append(headers)
 
-        # 拉取数据：前端传的是 resume_id 列表（非 candidate_id）
+        # 拉取数据
         docs: list[dict] = []
-        if candidate_ids and self.resumes_coll is not None:
-            cursor = self.resumes_coll.find({"resume_id": {"$in": candidate_ids}})
-            docs = await cursor.to_list(length=len(candidate_ids))
+        if resume_ids and self.resumes_coll is not None:
+            cursor = self.resumes_coll.find({"resume_id": {"$in": resume_ids}})
+            docs = await cursor.to_list(length=len(resume_ids))
 
         for doc in docs:
             # basic_info 下的字段扁平化读取（name/gender/age/location/phone_masked/email_masked）

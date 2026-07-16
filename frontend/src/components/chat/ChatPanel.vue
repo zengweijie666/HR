@@ -40,9 +40,9 @@
         type="textarea"
         :rows="2"
         resize="none"
-        placeholder="输入你的问题，回车发送"
+        placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"
         :disabled="chatStore.streaming"
-        @keyup.enter="handleSend"
+        @keyup.enter.exact="handleSend"
       />
       <el-button
         type="primary"
@@ -63,7 +63,7 @@
  * ChatPanel 对话主面板
  * 串联 useChatStore / useAuthStore，处理发送与流式接收
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Promotion } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
@@ -79,6 +79,8 @@ const authStore = useAuthStore()
 
 const draft = ref<string>('')
 const messageListRef = ref<HTMLElement | null>(null)
+/** 当前 SSE 请求的 AbortController，用于切换会话或组件卸载时中止 */
+let currentAbortController: AbortController | null = null
 
 /** 当前会话标题 */
 const currentTitle = computed(() => {
@@ -112,6 +114,14 @@ watch(
   () => chatStore.messages.length,
   () => scrollToBottom(),
 )
+
+/** 组件卸载时中止进行中的 SSE 请求，防止 token 写入已卸载的 store */
+onUnmounted(() => {
+  if (currentAbortController) {
+    currentAbortController.abort()
+    currentAbortController = null
+  }
+})
 
 /** 处理发送 */
 async function handleSend(): Promise<void> {
@@ -157,6 +167,9 @@ async function handleSend(): Promise<void> {
   draft.value = ''
 
   // 4. 调用流式接口
+  // 创建 AbortController 用于中止进行中的 SSE 请求
+  const abortController = new AbortController()
+  currentAbortController = abortController
   try {
     await sendMessageStream(
       sessionId,
@@ -203,13 +216,20 @@ async function handleSend(): Promise<void> {
           ElMessage.error(data.message || '流式响应出错')
         },
       },
+      abortController.signal,
     )
   } catch (err) {
-    const msg = err instanceof Error ? err.message : '发送失败'
-    ElMessage.error(msg)
+    // AbortError 是主动中止，不需要提示
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      // 静默处理
+    } else {
+      const msg = err instanceof Error ? err.message : '发送失败'
+      ElMessage.error(msg)
+    }
   } finally {
     // 6. 停止流式
     chatStore.stopStream()
+    currentAbortController = null
   }
 }
 </script>

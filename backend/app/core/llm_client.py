@@ -60,6 +60,27 @@ class LLMClient:
             logger.error(f"LLM 调用失败: {e}")
             raise LLMError(f"LLM 调用失败: {e}")
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=10),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
+    async def _create_stream(self, messages: list[dict], **kwargs):
+        """建立流式连接（带重试）
+
+        入参:
+            messages: OpenAI 消息列表
+            **kwargs: 透传参数
+        出参:
+            OpenAI 流对象
+        异常:
+            重试耗尽后抛出原异常
+        """
+        return await self.client.chat.completions.create(
+            model=settings.LLM_MODEL, messages=messages, stream=True, **kwargs
+        )
+
     async def chat_stream(self, messages: list[dict], **kwargs) -> AsyncGenerator[str, None]:
         """流式生成，yield token
 
@@ -69,19 +90,25 @@ class LLMClient:
         出参:
             异步生成器，逐 token 返回文本
         异常:
-            LLMError: 流式调用失败时抛出
+            LLMError: 建立连接失败或流式过程异常
+        说明:
+            建立连接阶段带 3 次重试；一旦开始 yield token，中途异常不再重试
+            （因为部分内容已发送给客户端，重试会导致重复输出）
         """
         try:
-            stream = await self.client.chat.completions.create(
-                model=settings.LLM_MODEL, messages=messages, stream=True, **kwargs
-            )
+            stream = await self._create_stream(messages, **kwargs)
+        except Exception as e:
+            logger.error(f"LLM 流式连接建立失败（重试后仍失败）: {e}")
+            raise LLMError(f"LLM 流式调用失败: {e}")
+
+        try:
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content
                 if delta:
                     yield delta
         except Exception as e:
-            logger.error(f"LLM 流式调用失败: {e}")
-            raise LLMError(f"LLM 流式调用失败: {e}")
+            logger.error(f"LLM 流式传输中断: {e}")
+            raise LLMError(f"LLM 流式传输中断: {e}")
 
 
 llm_client = LLMClient()

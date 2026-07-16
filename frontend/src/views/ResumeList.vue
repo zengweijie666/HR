@@ -281,7 +281,7 @@ async function handleExport(): Promise<void> {
   }
   try {
     const blob = await exportExcel({
-      candidate_ids: selectedIds.value,
+      resume_ids: selectedIds.value,
       columns: ['name', 'gender', 'age', 'education', 'work_years', 'skills', 'expected_salary', 'tags'],
     })
     downloadBlob(blob, defaultFilename('resumes', 'xlsx'))

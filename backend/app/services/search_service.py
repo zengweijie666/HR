@@ -103,6 +103,7 @@ class SearchService:
         except Exception as e:
             logger.warning(f"required_skills 提取失败: {e}")
 
+        # 缓存键在 required_skills 提取后构建，确保含完整过滤条件
         cache_key = f"search:{query}:{json.dumps(filters, sort_keys=True, default=str)}:{top_k}"
 
         # 缓存命中
@@ -257,7 +258,10 @@ class SearchService:
             query: dict = {}
             skills = sf.get("required_skills", [])
             if skills:
-                query["skills"] = {"$regex": "|".join(s.lower() for s in skills), "$options": "i"}
+                # skills 在 MongoDB 中是数组，用 $all 要求包含所有指定技能（大小写不敏感需逐一 $elemMatch + $regex）
+                # 简化实现：用 $elemMatch + $regex 或运算匹配，确保数组中至少包含一个指定技能
+                regex_pattern = "|".join(s.lower() for s in skills)
+                query["skills"] = {"$elemMatch": {"$regex": regex_pattern, "$options": "i"}}
             years_min = sf.get("work_years_min")
             if years_min is not None:
                 query["work_years"] = {"$gte": years_min}

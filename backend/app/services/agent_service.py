@@ -108,12 +108,17 @@ class AgentService:
         入参:
             session_id: 会话 ID
         出参:
-            消息列表
+            消息列表（assistant 消息的 intent_type 映射为 intent，保持前后端字段名一致）
         """
         doc = await self.sessions_coll.find_one({"session_id": session_id})
         if not doc:
             return []
-        return doc.get("messages", [])
+        messages = doc.get("messages", [])
+        # 将 MongoDB 中 assistant 消息的 intent_type 映射为 intent，保持前端 ChatMessage.intent 一致
+        for msg in messages:
+            if msg.get("role") == "assistant" and "intent_type" in msg:
+                msg["intent"] = msg.pop("intent_type")
+        return messages
 
     async def delete_session(self, session_id: str) -> None:
         """AC10.4: 删除会话
@@ -141,9 +146,9 @@ class AgentService:
             异步生成器，yield SSE 事件字符串
         事件类型: intent / retrieval / rank / candidates / token / done / error
         """
-        # 加载历史
+        # 加载历史（取最后 20 条作为上下文，避免 token 过多）
         doc = await self.sessions_coll.find_one({"session_id": session_id})
-        history = doc.get("messages", [])[-10:] if doc else []
+        history = doc.get("messages", [])[-20:] if doc else []
         message_id = f"m_{uuid.uuid4().hex[:16]}"
 
         # 从历史消息中提取最近一次候选人列表（供 compare/detail/qa 复用，避免重复检索）
@@ -402,7 +407,7 @@ class AgentService:
                                 "created_at": now,
                             }
                         ],
-                        "$slice": -20,
+                        "$slice": -50,
                     }
                 },
                 "$set": {"updated_at": now},
@@ -438,17 +443,17 @@ class AgentService:
                 "$push": {
                     "messages": {
                         "$each": [
-                            {
-                                "message_id": message_id,
-                                "role": "assistant",
-                                "content": response,
-                                "intent_type": state.get("intent_type"),
-                                "strategy": state.get("strategy"),
-                                "candidates": state.get("candidates"),
-                                "created_at": now,
-                            }
-                        ],
-                        "$slice": -20,
+                        {
+                            "message_id": message_id,
+                            "role": "assistant",
+                            "content": response,
+                            "intent_type": state.get("intent_type"),
+                            "strategy": state.get("strategy"),
+                            "candidates": state.get("candidates"),
+                            "created_at": now,
+                        }
+                    ],
+                    "$slice": -50,
                     }
                 },
                 "$set": {"updated_at": now},

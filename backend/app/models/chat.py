@@ -4,7 +4,7 @@
 作者: TalentSense Team
 功能描述: 对话模型，对应 API-Design.md 三、Chat 与 10.4
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SessionCreate(BaseModel):
@@ -32,5 +32,5 @@ class ChatMessage(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    query: str
+    query: str = Field(..., min_length=1, description="用户查询，不可为空")
     context: dict = {}

@@ -9,13 +9,13 @@ import type { CandidateCard, CompareResult } from '@/types/candidate'
 
 /** 导出请求参数 */
 export interface ExportParams {
-  candidate_ids: string[]
+  resume_ids: string[]
   columns: string[]
 }
 
 /**
  * 导出候选人 Excel
- * @param params 导出参数 { candidate_ids, columns }
+ * @param params 导出参数 { resume_ids, columns }
  * @returns Blob 文件流
  */
 export function exportExcel(params: ExportParams): Promise<Blob> {

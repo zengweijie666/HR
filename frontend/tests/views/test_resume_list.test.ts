@@ -281,7 +281,7 @@ describe('views/ResumeList', () => {
     await flushPromises()
     expect(exportExcel).toHaveBeenCalled()
     expect(exportExcel.mock.calls[0][0]).toMatchObject({
-      candidate_ids: ['r1'],
+      resume_ids: ['r1'],
     })
   })
 
