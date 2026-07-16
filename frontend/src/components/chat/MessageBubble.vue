@@ -24,16 +24,19 @@
         <p class="msg__content">{{ message.content || '…' }}</p>
       </div>
 
-      <!-- 候选人缩略列表 -->
+      <!-- 候选人缩略列表（只展示 Top 5，避免低相关性候选人刷屏） -->
       <div v-if="message.candidates && message.candidates.length" class="msg__candidates">
         <div
-          v-for="c in message.candidates"
+          v-for="c in message.candidates.slice(0, 5)"
           :key="c.candidate_id"
           class="msg__candidate"
         >
           <span class="msg__candidate-name">{{ c.name }}</span>
           <span class="msg__candidate-score">{{ c.score }}</span>
         </div>
+        <span v-if="message.candidates.length > 5" class="msg__candidate-more">
+          +{{ message.candidates.length - 5 }}人
+        </span>
       </div>
     </div>
   </div>
@@ -164,6 +167,12 @@ defineProps<MessageBubbleProps>()
     color: var(--color-accent-deep);
     font-family: var(--font-mono);
     font-weight: 600;
+  }
+
+  &__candidate-more {
+    color: var(--color-ink-muted);
+    font-size: var(--text-xs);
+    padding: 3px 6px;
   }
 }
 </style>
