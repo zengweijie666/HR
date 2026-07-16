@@ -246,10 +246,14 @@ async def retrieve_rank_node(state: AgentState) -> dict:
         if not compressed_context and state.get("chunks"):
             compress_result = await context_compress_node(state)
             compressed_context = compress_result.get("compressed_context", {})
+        # top_k=10：工作台对话场景仅需返回最相关的 Top 10 候选人。
+        # 此前 top_k=20 会导致候选池达 60 人（max(20*3,20)）、Milvus 每路召回 100 条，
+        # LLM 评分耗时翻倍且 div 展示冗余（5+15人）。降至 10 后候选池 30 人、
+        # 每路召回 50 条，响应时间约减半，div 显示 5+5人=10。
         candidates = await search_service.search(
             query=state["query"],
             filters=state.get("filters", {}),
-            top_k=20,
+            top_k=10,
             history=state.get("history", []),
             decomposed=state.get("decomposed", {}),
             compressed_context=compressed_context,

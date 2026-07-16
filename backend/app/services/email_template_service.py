@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from jinja2 import Environment, StrictUndefined
 from app.core.database import MongoDB
-from app.core.exceptions import NotFoundError, ConflictError, BizError
+from app.core.exceptions import NotFoundError, ConflictError
 from app.core.logger import logger
 
 
@@ -78,17 +78,14 @@ class EmailTemplateService:
     async def update_template(self, template_id: str, name: str | None = None,
                               subject: str | None = None, body: str | None = None,
                               category: str | None = None) -> dict:
-        """更新模板（预置模板不允许修改）
+        """更新模板（所有模板均可修改，包括预置模板）
 
         异常:
             NotFoundError: 模板不存在
-            BizError: 预置模板不允许修改
         """
         doc = await self.templates_coll.find_one({"template_id": template_id})
         if not doc:
             raise NotFoundError("模板不存在")
-        if doc.get("is_builtin"):
-            raise BizError(code=4003, message="预置模板不允许修改")
         update_fields: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
         if name is not None:
             update_fields["name"] = name
@@ -105,17 +102,14 @@ class EmailTemplateService:
         return await self.templates_coll.find_one({"template_id": template_id}, {"_id": 0})
 
     async def delete_template(self, template_id: str) -> None:
-        """删除模板（预置模板不允许删除）
+        """删除模板（所有模板均可删除，包括预置模板）
 
         异常:
             NotFoundError: 模板不存在
-            BizError: 预置模板不允许删除
         """
         doc = await self.templates_coll.find_one({"template_id": template_id})
         if not doc:
             raise NotFoundError("模板不存在")
-        if doc.get("is_builtin"):
-            raise BizError(code=4003, message="预置模板不允许删除")
         await self.templates_coll.delete_one({"template_id": template_id})
         logger.info(f"删除邮件模板: {template_id}")
 

@@ -166,7 +166,6 @@
                 <el-button
                   size="small"
                   type="danger"
-                  :disabled="row.is_builtin"
                   @click="handleDelete(row)"
                 >
                   删除
@@ -470,12 +469,8 @@ function openCreate(): void {
   tplDialogVisible.value = true
 }
 
-/** 打开编辑对话框（预置模板也可查看，但 is_builtin 字段不允许编辑） */
+/** 打开编辑对话框（所有模板均可编辑） */
 function openEdit(row: TemplateItem): void {
-  if (row.is_builtin) {
-    ElMessage.warning('预置模板不可编辑')
-    return
-  }
   tplEditMode.value = 'edit'
   tplEditingId.value = row.template_id
   tplForm.name = row.name

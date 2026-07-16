@@ -55,13 +55,13 @@ async def test_update_template_success(svc):
 
 
 @pytest.mark.asyncio
-async def test_update_builtin_template_rejected(svc):
-    """预置模板不允许编辑（仅可删除后重建）"""
+async def test_update_builtin_template_allowed(svc):
+    """预置模板也允许编辑"""
     svc.templates_coll.find_one = AsyncMock(return_value={
         "template_id": "t1", "name": "面试邀请", "is_builtin": True
     })
-    with pytest.raises(Exception):
-        await svc.update_template("t1", name="改")
+    await svc.update_template("t1", name="改")
+    svc.templates_coll.update_one.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -74,12 +74,13 @@ async def test_delete_template_success(svc):
 
 
 @pytest.mark.asyncio
-async def test_delete_builtin_template_rejected(svc):
+async def test_delete_builtin_template_allowed(svc):
+    """预置模板也允许删除"""
     svc.templates_coll.find_one = AsyncMock(return_value={
         "template_id": "t1", "is_builtin": True
     })
-    with pytest.raises(Exception):
-        await svc.delete_template("t1")
+    await svc.delete_template("t1")
+    svc.templates_coll.delete_one.assert_called_once()
 
 
 @pytest.mark.asyncio

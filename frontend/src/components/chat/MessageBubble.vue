@@ -24,18 +24,20 @@
         <p class="msg__content">{{ message.content || '…' }}</p>
       </div>
 
-      <!-- 候选人缩略列表（只展示 Top 5，避免低相关性候选人刷屏） -->
+      <!-- 候选人缩略列表（最多展示 Top 10，后端已限制 top_k=10） -->
       <div v-if="message.candidates && message.candidates.length" class="msg__candidates">
         <div
-          v-for="c in message.candidates.slice(0, 5)"
+          v-for="c in message.candidates.slice(0, 10)"
           :key="c.candidate_id"
           class="msg__candidate"
+          :class="{ 'msg__candidate--link': c.resume_id }"
+          @click="handleCandidateClick(c)"
         >
           <span class="msg__candidate-name">{{ c.name }}</span>
           <span class="msg__candidate-score">{{ c.score }}</span>
         </div>
-        <span v-if="message.candidates.length > 5" class="msg__candidate-more">
-          +{{ message.candidates.length - 5 }}人
+        <span v-if="message.candidates.length > 10" class="msg__candidate-more">
+          +{{ message.candidates.length - 10 }}人
         </span>
       </div>
     </div>
@@ -47,7 +49,9 @@
  * MessageBubble 对话消息气泡
  * 渲染单条 user/assistant 消息及其候选人附件
  */
+import { useRouter } from 'vue-router'
 import type { ChatMessage } from '@/types/chat'
+import type { CandidateCard } from '@/types/candidate'
 
 interface MessageBubbleProps {
   /** 消息对象 */
@@ -55,6 +59,18 @@ interface MessageBubbleProps {
 }
 
 defineProps<MessageBubbleProps>()
+
+const router = useRouter()
+
+/**
+ * 点击候选人 chip 跳转到简历详情
+ * @param candidate 候选人对象
+ */
+function handleCandidateClick(candidate: CandidateCard): void {
+  if (candidate.resume_id) {
+    router.push(`/resumes/${candidate.resume_id}`)
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -156,6 +172,19 @@ defineProps<MessageBubbleProps>()
     background-color: var(--color-primary-tint);
     border-radius: 999px;
     font-size: var(--text-xs);
+    transition: background-color 0.15s ease;
+
+    &--link {
+      cursor: pointer;
+
+      &:hover {
+        background-color: var(--color-primary);
+        .msg__candidate-name,
+        .msg__candidate-score {
+          color: #fff;
+        }
+      }
+    }
   }
 
   &__candidate-name {
