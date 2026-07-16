@@ -254,6 +254,8 @@ class AgentService:
                             target_candidate = c
                             break
                     if target_candidate:
+                        # 从 MongoDB 拉取完整简历数据用于详情展示
+                        target_candidate = await self._enrich_candidate_detail(target_candidate)
                         system_prompt = (
                             "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
                             "1. 只能使用提供的候选人数据回答，绝对禁止编造信息\n"
@@ -287,6 +289,10 @@ class AgentService:
                             compare_candidates = exact_matched
                         else:
                             compare_candidates = candidates[:10]
+                    # 【关键修复】从 MongoDB 拉取对比候选人的完整简历数据
+                    # 搜索返回的 candidates 只有精简卡片（name/skills/score），缺少工作经历和项目，
+                    # 导致 LLM 对比时说"只找到一位候选人信息"或无法深入对比
+                    compare_candidates = await self._enrich_candidates_for_compare(compare_candidates)
                     system_prompt = (
                         "你是 TalentSense HR 招聘助手。严格遵守以下规则：\n"
                         "1. 只能使用提供的候选人数据对比，绝对禁止编造信息\n"
@@ -562,6 +568,79 @@ class AgentService:
                 matched.append(c)
                 seen.add(cid)
         return matched
+
+    async def _enrich_candidate_detail(self, candidate: dict) -> dict:
+        """从 MongoDB 拉取候选人完整简历数据，补充工作经历/项目等详情
+
+        入参:
+            candidate: 搜索返回的精简候选人卡片（含 resume_id/candidate_id/name/skills/score 等）
+        出参:
+            合并了完整简历数据的候选人字典（含 work_experience/projects/education_detail 等）
+        """
+        resume_id = candidate.get("resume_id") or candidate.get("candidate_id")
+        if not resume_id or self.sessions_coll is None:
+            return candidate
+        try:
+            from app.core.database import MongoDB
+            resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+            if resumes_coll is None:
+                return candidate
+            doc = await resumes_coll.find_one({"resume_id": resume_id})
+            if not doc:
+                return candidate
+            # 合并完整数据到候选人卡片（保留卡片中的 score/score_detail/reason 等评分信息）
+            enriched = dict(candidate)
+            for key in ("work_experience", "education_detail", "projects",
+                        "summary", "basic_info", "expected_salary"):
+                if key in doc and key not in enriched:
+                    enriched[key] = doc[key]
+            return enriched
+        except Exception as e:
+            logger.warning(f"拉取候选人详情失败 resume_id={resume_id}: {e}")
+            return candidate
+
+    async def _enrich_candidates_for_compare(self, candidates: list[dict]) -> list[dict]:
+        """批量从 MongoDB 拉取候选人完整简历数据，用于对比场景
+
+        入参:
+            candidates: 搜索返回的精简候选人卡片列表
+        出参:
+            合并了完整简历数据的候选人列表（每个候选人含 work_experience/projects 等）
+        """
+        if not candidates:
+            return candidates
+        try:
+            from app.core.database import MongoDB
+            resumes_coll = MongoDB.db.resumes if MongoDB.db is not None else None
+            if resumes_coll is None:
+                return candidates
+            resume_ids = [
+                c.get("resume_id") or c.get("candidate_id")
+                for c in candidates
+                if c.get("resume_id") or c.get("candidate_id")
+            ]
+            if not resume_ids:
+                return candidates
+            cursor = resumes_coll.find({"resume_id": {"$in": resume_ids}})
+            docs = await cursor.to_list(length=len(resume_ids))
+            doc_map = {d.get("resume_id"): d for d in docs}
+            enriched_list = []
+            for c in candidates:
+                rid = c.get("resume_id") or c.get("candidate_id")
+                doc = doc_map.get(rid)
+                if doc:
+                    enriched = dict(c)
+                    for key in ("work_experience", "education_detail", "projects",
+                                "summary", "basic_info", "expected_salary"):
+                        if key in doc and key not in enriched:
+                            enriched[key] = doc[key]
+                    enriched_list.append(enriched)
+                else:
+                    enriched_list.append(c)
+            return enriched_list
+        except Exception as e:
+            logger.warning(f"批量拉取候选人详情失败: {e}")
+            return candidates
 
 
 agent_service = AgentService()

@@ -67,8 +67,17 @@ import type { CandidateCard as CandidateCardType } from '@/types/candidate'
 const chatStore = useChatStore()
 const router = useRouter()
 
-/** 推荐候选人列表（来自最近一条 assistant 消息） */
+/** 推荐候选人最大展示数量（只展示最相关的 Top N，避免低相关性候选人干扰） */
+const MAX_RECOMMEND_CARDS = 5
+
+/** 推荐候选人列表（来自最近一条 assistant 消息，只展示 Top N） */
 const recommendCandidates = ref<CandidateCardType[]>([])
+
+/** 从候选人列表中截取 Top N 用于推荐区展示 */
+function sliceTopCandidates(candidates: CandidateCardType[] | null | undefined): CandidateCardType[] {
+  if (!candidates) return []
+  return candidates.slice(0, MAX_RECOMMEND_CARDS)
+}
 
 /** 每页会话数 */
 const PAGE_SIZE = 20
@@ -96,7 +105,7 @@ async function loadMessages(sessionId: string): Promise<void> {
     chatStore.setMessages(list || [])
     // 切换会话时，用最后一条 assistant 消息的 candidates 初始化推荐区
     const lastAssistant = [...(list || [])].reverse().find((m) => m.role === 'assistant')
-    recommendCandidates.value = lastAssistant?.candidates || []
+    recommendCandidates.value = sliceTopCandidates(lastAssistant?.candidates)
   } catch (err) {
     const msg = err instanceof Error ? err.message : '加载会话消息失败'
     ElMessage.error(msg)
@@ -177,8 +186,8 @@ watch(
     const intent = last.intent
     // 闲聊/通用问答：保留既有推荐卡片
     if (intent === 'chitchat' || intent === 'qa') return
-    // 检索类意图：覆盖（含空结果）
-    recommendCandidates.value = last.candidates || []
+    // 检索类意图：覆盖（含空结果），只展示 Top N
+    recommendCandidates.value = sliceTopCandidates(last.candidates)
   },
 )
 
